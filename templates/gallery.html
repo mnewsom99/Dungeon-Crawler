@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Sprite Gallery</title>
+    <style>
+        body {
+            background: #111;
+            color: #eee;
+            font-family: monospace;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 10px;
+            padding: 20px;
+        }
+
+        .cell {
+            text-align: center;
+            border: 1px solid #333;
+            padding: 5px;
+        }
+
+        img {
+            width: 32px;
+            height: 32px;
+            image-rendering: pixelated;
+        }
+
+        /* Zoomed in */
+        .name {
+            font-size: 10px;
+            margin-top: 5px;
+            color: #aaa;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Sprite Gallery</h1>
+    <p>Please note the Filename of the sprites you want to use.</p>
+    <div class="grid">
+        <!-- I will use JS to populate this to avoid typing 160 lines -->
+    </div>
+    <script>
+        const grid = document.querySelector('.grid');
+        for (let i = 0; i <= 159; i++) {
+            const num = String(i).padStart(4, '0');
+            const name = `tile_${num}.png`;
+
+            const div = document.createElement('div');
+            div.className = 'cell';
+
+            const img = document.createElement('img');
+            img.src = `/static/img/${name}`;
+
+            const label = document.createElement('div');
+            label.className = 'name';
+            label.textContent = num;
+
+            div.appendChild(img);
+            div.appendChild(label);
+            grid.appendChild(div);
+        }
+    </script>
+</body>
+
+</html>

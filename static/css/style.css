@@ -1,0 +1,198 @@
+body {
+    background-color: #1a1a1a;
+    color: #00ff00;
+    /* Retro terminal green */
+    font-family: 'Courier New', Courier, monospace;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    /* Stack header and container vertically */
+    justify-content: flex-start;
+    /* Start from top */
+    align-items: center;
+    /* Horizontally center */
+    min-height: 100vh;
+    padding-bottom: 20px;
+}
+
+/* Main Layout: 2 Columns */
+.container {
+    display: flex;
+    flex-direction: row;
+    /* Side by side */
+    gap: 20px;
+    align-items: flex-start;
+}
+
+#map-canvas {
+    width: 600px;
+    height: 400px;
+    background: #222;
+    border: 3px solid #004400;
+    box-shadow: 0 0 20px #002200 inset;
+    width: 100%;
+    height: 100%;
+}
+
+/* Character Sheet (Left Panel) */
+#char-sheet {
+    width: 300px;
+    background-color: #111;
+    border: 2px solid #004400;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 600px;
+    /* Match game view */
+    overflow-y: auto;
+}
+
+.char-img {
+    width: 100%;
+    height: 200px;
+    border: 1px solid #333;
+    object-fit: contain;
+    /* or cover */
+    background: #000;
+    image-rendering: pixelated;
+}
+
+.stat-block {
+    font-size: 12px;
+}
+
+.stat-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.stat-table th,
+.stat-table td {
+    padding: 4px;
+    border-bottom: 1px solid #333;
+    text-align: left;
+}
+
+.stat-table th {
+    color: #DAA520;
+    /* Gold */
+}
+
+/* Game Area (Center Panel) */
+.game-area {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Interaction Panel (Right Panel) */
+#interaction-panel {
+    width: 250px;
+    background-color: #111;
+    border: 2px solid #004400;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    height: 600px;
+    overflow-y: auto;
+}
+
+.interaction-item {
+    border: 1px solid #333;
+    padding: 10px;
+    background: #000;
+}
+
+.interaction-actions {
+    display: flex;
+    gap: 5px;
+    margin-top: 5px;
+}
+
+.interaction-actions button {
+    padding: 5px 10px;
+    font-size: 10px;
+}
+
+canvas {
+    border: 2px solid #004400;
+    background-color: #000;
+    image-rendering: pixelated;
+    /* Keeps blocks sharp */
+}
+
+#narrative-log {
+    width: 600px;
+    /* Match canvas width */
+    height: 150px;
+    border: 1px solid #333;
+    padding: 10px;
+    margin-top: 10px;
+    overflow-y: auto;
+    background-color: #111;
+}
+
+/* Controls */
+#controls {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.control-row {
+    display: flex;
+    gap: 15px;
+}
+
+.dpad-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+}
+
+/* Buttons */
+button {
+    background-color: #222;
+    color: #e0e0e0;
+    border: 1px solid #444;
+    padding: 12px 18px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: bold;
+    min-width: 45px;
+    transition: background 0.1s;
+    box-shadow: 0 2px 0 #000;
+}
+
+button:active {
+    transform: translateY(2px);
+    box-shadow: none;
+}
+
+button:hover {
+    background-color: #444;
+    border-color: #00ff00;
+    color: #fff;
+}
+
+/* Specific styling for invisible placeholder in dpad */
+.dpad-empty {
+    visibility: hidden;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #444;
+}
+
+::-webkit-scrollbar-track {
+    background: #111;
+}

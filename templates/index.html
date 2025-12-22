@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon Crawler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+
+<body>
+    <header style="width: 100%; text-align: center; padding: 20px 0;">
+        <h1
+            style="color: #00ff00; margin: 0; text-transform: uppercase; letter-spacing: 5px; text-shadow: 0 0 10px #004400;">
+            Dungeon Crawler</h1>
+    </header>
+
+    <div class="container">
+        <!-- Left Panel: Character Sheet -->
+        <aside id="char-sheet">
+            <h2 style="text-align: center; border-bottom: 2px solid #004400; padding-bottom: 5px;">HERO</h2>
+            <img id="char-image" src="{{ url_for('static', filename='img/player.png') }}" class="char-img"
+                alt="Character Portrait">
+
+            <div class="stat-block">
+                <h3>Stats</h3>
+                <table class="stat-table">
+                    <thead>
+                        <tr>
+                            <th>Stat</th>
+                            <th>Value</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stat-body">
+                        <!-- Populated by JS -->
+                        <tr>
+                            <td>STR</td>
+                            <td id="stat-str">10</td>
+                            <td>Physical power</td>
+                        </tr>
+                        <tr>
+                            <td>DEX</td>
+                            <td id="stat-dex">10</td>
+                            <td>Agility</td>
+                        </tr>
+                        <tr>
+                            <td>CON</td>
+                            <td id="stat-con">10</td>
+                            <td>Endurance</td>
+                        </tr>
+                        <tr>
+                            <td>INT</td>
+                            <td id="stat-int">10</td>
+                            <td>Reasoning</td>
+                        </tr>
+                        <tr>
+                            <td>WIS</td>
+                            <td id="stat-wis">10</td>
+                            <td>Intuition</td>
+                        </tr>
+                        <tr>
+                            <td>CHA</td>
+                            <td id="stat-cha">10</td>
+                            <td>Presence</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="stat-block">
+                <h3>Gear</h3>
+                <ul id="gear-list" style="padding-left: 20px; color: #ccc;">
+                    <li>Leather Armor</li>
+                    <li>Short Sword</li>
+                    <li>Backpack</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- Right Panel: Game Area -->
+        <main class="game-area">
+
+            <div id="game-view">
+                <canvas id="map-canvas" width="600" height="400"></canvas>
+            </div>
+
+            <div id="narrative-log">
+                <p class="system-msg">Welcome to the dungeon...</p>
+            </div>
+
+            <div id="controls">
+                <div class="control-row">
+                    <button onclick="changeZoom(5)" title="Zoom In">+</button>
+                    <button onclick="changeZoom(-5)" title="Zoom Out">-</button>
+                    <button onclick="toggleMap()" title="View Map">Map</button>
+                    <div style="width: 20px;"></div> <!-- Spacer -->
+                    <button onclick="combatAction('flee')" title="Panic Button">⚠</button>
+                    <button onclick="resetGame()" style="background: #500; color: #faa; border: 1px solid #f00;"
+                        title="Reset Game">Reset</button>
+                </div>
+
+                <!-- D-Pad Grid Layout -->
+                <div class="dpad-grid">
+                    <div class="dpad-empty"></div>
+                    <button onclick="move('north')">N</button>
+                    <div class="dpad-empty"></div>
+
+                    <button onclick="move('west')">W</button>
+                    <button onclick="move('south')">S</button>
+                    <button onclick="move('east')">E</button>
+                </div>
+            </div>
+
+            <!-- Map Modal -->
+            <div id="map-modal"
+                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center;">
+                <div style="text-align: center; color: white;">
+                    <h2>Dungeon Map</h2>
+                    <canvas id="full-map-canvas" width="800" height="600"
+                        style="border: 2px solid #555; background: #111;"></canvas>
+                    <br>
+                    <button onclick="toggleMap()"
+                        style="padding: 10px 20px; font-size: 16px; margin-top: 10px; cursor: pointer;">Close</button>
+                </div>
+            </div>
+
+            <div id="combat-controls" style="display: none; margin-top: 20px;">
+                <h3>Combat Active!</h3>
+                <div class="control-row">
+                    <button onclick="combatAction('attack')" style="border-color: #ff4444;">Attack (Sword)</button>
+                    <button onclick="combatAction('unarmed')">Kick/Punch</button>
+                    <button onclick="combatAction('flee')">Flee</button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: Interaction -->
+        <aside id="interaction-panel">
+            <h2 style="text-align: center; border-bottom: 2px solid #004400; padding-bottom: 5px;">NEARBY</h2>
+            <div id="nearby-list">
+                <!-- Populated by JS -->
+                <p style="color: #666; font-style: italic;">Nothing of interest...</p>
+            </div>
+        </aside>
+    </div>
+    <script src="{{ url_for('static', filename='js/game.js') }}?v=1"></script>
+</body>
+
+</html>
