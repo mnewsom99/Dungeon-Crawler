@@ -565,6 +565,7 @@ button:hover {
     border: 1px solid #444;
     font-family: inherit;
 }
+
 /* Combat UI Styles */
 .btn-combat {
     font-size: 14px;
@@ -581,6 +582,7 @@ button:hover {
     color: #ffaaaa;
     border-color: #800;
 }
+
 .btn-attack:hover {
     background: #800;
     box-shadow: 0 0 10px #f00;
@@ -590,6 +592,7 @@ button:hover {
     background: #222;
     color: #aaa;
 }
+
 .btn-flee:hover {
     background: #444;
     color: #fff;
@@ -604,10 +607,12 @@ button:hover {
     background: rgba(20, 10, 5, 0.98) !important;
     pointer-events: auto !important;
 }
+
 #chat-portrait {
     width: 150px !important;
     position: relative !important;
 }
+
 #chat-overlaid-name {
     position: absolute;
     top: 5px;
@@ -620,21 +625,25 @@ button:hover {
     font-weight: bold;
     text-shadow: 1px 1px 0 #000;
 }
+
 #chat-history {
-    background: rgba(0,0,0,0.3) !important;
+    background: rgba(0, 0, 0, 0.3) !important;
     color: #e0d0b0 !important;
 }
+
 .chat-message {
     padding: 8px 12px !important;
     border-radius: 8px !important;
     margin-bottom: 8px !important;
     font-size: 12px !important;
 }
+
 .chat-message.npc {
     background: #0d2b2b !important;
     color: #ccffff !important;
     border-left: 4px solid #00ffff !important;
 }
+
 .chat-message.user {
     background: #333333 !important;
     color: #ffffff !important;
@@ -670,10 +679,49 @@ button:hover {
     padding: 0 !important;
     display: block !important;
     margin: 0 !important;
-    border-radius: 4px; /* Optional, nice touch */
+    border-radius: 4px;
+    /* Optional, nice touch */
 }
+
 .close-btn:hover {
     background: #600 !important;
     color: #fff !important;
 }
 
+/* Turn Notification Overlay */
+#turn-notification {
+    position: absolute;
+    top: 30%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.9);
+    border: 3px solid #ff0000;
+    color: #fff;
+    padding: 20px 40px;
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 10px;
+    z-index: 3000;
+    box-shadow: 0 0 30px #ff0000;
+    pointer-events: none;
+    display: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+}
+
+#turn-notification h2 {
+    margin: 0;
+    color: #ffaaaa;
+    text-transform: uppercase;
+    font-size: 1.5em;
+    border-bottom: 2px solid #500;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+#turn-notification p {
+    margin: 5px 0;
+    font-size: 0.8em;
+    color: #ffd700;
+}

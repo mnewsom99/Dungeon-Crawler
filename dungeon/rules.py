@@ -34,3 +34,40 @@ def calculate_damage(dice_str: str) -> int:
     Rolls damage. separated for semantic clarity.
     """
     return roll_dice(dice_str)
+
+def get_skill_level(player, skill):
+    """Get the level of a specific skill for a player."""
+    data = player.skills or {}
+    if skill not in data: return 0
+    if isinstance(data[skill], int): return data[skill] 
+    return data[skill].get("level", 0)
+
+def award_skill_xp(player, skill, amount):
+    """Award XP to a skill and check for level up."""
+    from sqlalchemy.orm.attributes import flag_modified
+    
+    data = player.skills or {}
+    # Ensure dict structure
+    new_data = dict(data)
+    
+    if skill not in new_data:
+        new_data[skill] = {"level": 1, "xp": 0}
+    elif isinstance(new_data[skill], int):
+            new_data[skill] = {"level": new_data[skill], "xp": 0}
+            
+    s = new_data[skill]
+    s["xp"] += amount
+    
+    # Level Up Logic
+    threshold = s["level"] * 50
+    leveled_up = False
+    while s["xp"] >= threshold:
+            s["xp"] -= threshold
+            s["level"] += 1
+            threshold = s["level"] * 50
+            leveled_up = True
+            
+    player.skills = new_data
+    flag_modified(player, "skills")
+    
+    return leveled_up, s["level"]

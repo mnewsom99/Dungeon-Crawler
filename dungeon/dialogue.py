@@ -116,6 +116,57 @@ class DialogueSystem:
              target.location = "Seraphina's Alchemy Shop (Oakhaven)"
              reply += "\n\n(Seraphina gathers her scrolls.) 'Finally! The mana down here was giving me a headache. See you in town!'"
 
+        # --- Shop Quests (Town) ---
+        can_trade = False
+        hint = ""
+        
+        if target.name == "Gareth":
+            shop_status = state.get("shop_status", "closed")
+            
+            if shop_status == "open":
+                can_trade = True
+            else:
+                # Check for Ore
+                has_ore = any(i.name == "Iron Ore" for i in self.player.inventory)
+                if has_ore:
+                    # Unlock!
+                    state["shop_status"] = "open"
+                    can_trade = True
+                    hint = "(SYSTEM: The player has brought the Iron Ore! Thank them heartily and declare the shop OPEN!)"
+                    
+                    # Remove Ore
+                    ore = next(i for i in self.player.inventory if i.name == "Iron Ore")
+                    self.session.delete(ore)
+                else:
+                    hint = "(SYSTEM: The player wants to trade. Tell them you need **Iron Ore** first. Mention some rocks to the EAST.)"
+
+        elif target.name == "Seraphina":
+            shop_status = state.get("shop_status", "closed")
+            
+            if shop_status == "open":
+                can_trade = True
+            else:
+                # Check for Herbs
+                has_herb = any(i.name == "Mystic Herb" for i in self.player.inventory)
+                if has_herb:
+                    # Unlock!
+                    state["shop_status"] = "open"
+                    can_trade = True
+                    hint = "(SYSTEM: The player has brought the Mystic Herb! Thank them and open the apothecary!)"
+                    
+                    # Remove Herb
+                    herb = next(i for i in self.player.inventory if i.name == "Mystic Herb")
+                    self.session.delete(herb)
+                else:
+                    hint = "(SYSTEM: The shop is closed. Tell the player you need a **Mystic Herb** from the garden behind your shop (WEST).)"
+
+        if hint:
+            prompt += f"\n{hint}"
+        
+        reply = self.ai.chat(prompt, persona="npc")
+        
+        # ... (Rescue logic can remain, though less relevant in Town) ...
+
         # Append Reply
         history.append(f"{target.name}: {reply}")
         
@@ -125,4 +176,4 @@ class DialogueSystem:
         flag_modified(target, "quest_state")
         self.session.commit()
         
-        return reply, target.name
+        return reply, target.name, can_trade

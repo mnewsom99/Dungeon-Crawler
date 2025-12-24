@@ -31,9 +31,26 @@ class AIBridge:
         messages.append({'role': 'user', 'content': user_input})
         
         try:
-            print(f"AIBridge: Generating response for '{persona}'...")
-            res = ollama.chat(model=self.model, messages=messages)
+            # print(f"AIBridge: Generating response for '{persona}'...")
+            # Simple fallback for now if connection is flaky
+            import requests
+            
+            # Manual call to Ollama with timeout
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "stream": False
+            }
+            
+            # 5 Second Timeout to prevent UI lockup
+            response = requests.post("http://localhost:11434/api/chat", json=payload, timeout=5)
+            response.raise_for_status()
+            res = response.json()
             return res['message']['content']
+            
         except Exception as e:
-            print(f"Ollama Error: {e}")
-            return "(The spirits are silent... check your AI connection.)"
+            print(f"AIBridge Error: {e}")
+            # Fallback responses based on persona
+            if persona == "npc":
+                return "..."
+            return "The shadows are too deep to see clearly."

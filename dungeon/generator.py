@@ -1,6 +1,6 @@
 import json
 import os
-from .database import MapTile, Monster, NPC, InventoryItem
+from .database import MapTile, Monster, NPC, InventoryItem, WorldObject
 from sqlalchemy.orm.attributes import flag_modified
 
 class LevelBuilder:
@@ -84,8 +84,12 @@ class LevelBuilder:
 
         # --- Commit Map ---
         # Floors
+        import random
         for (x, y) in self.floors:
-            self.session.add(MapTile(x=x, y=y, z=0, tile_type="floor", is_visited=True))
+            t_type = "floor"
+            if random.random() < 0.05:
+                t_type = "rock"
+            self.session.add(MapTile(x=x, y=y, z=0, tile_type=t_type, is_visited=False))
 
         # Walls (Perimeter)
         # Identify walls by checking neighbors of floors
@@ -97,7 +101,7 @@ class LevelBuilder:
                         self.walls.add((nx, ny))
         
         for (x, y) in self.walls:
-            self.session.add(MapTile(x=x, y=y, z=0, tile_type="wall", is_visited=True))
+            self.session.add(MapTile(x=x, y=y, z=0, tile_type="wall", is_visited=False))
         
         # --- Populate Enemies (Total: 9 Skeletons + 1 Boss) ---
         enemies = [
@@ -127,6 +131,26 @@ class LevelBuilder:
 
         # Load Dungeon NPCs (Z=0)
         self._load_npcs_from_file(0)
+        
+        # 8. Add Interactive Objects (Chests)
+        # Ancient Chest in Boss Room (Center of 5x5 at 0,30) -> 0,30
+        cmd_loot = [{"id": "loot_sword_1", "name": "Steel Sword", "item_type": "weapon", "slot": "main_hand", "properties": {"damage": "1d8", "icon": "⚔️"}}]
+        self.session.add(WorldObject(
+            name="Ancient Chest", 
+            obj_type="chest", 
+            x=0, y=30, z=0, 
+            properties={"loot": cmd_loot, "icon": "🧳"}
+        ))
+        
+        # Armory Crate in West Wing (-10, 11)
+        armory_loot = [{"id": "loot_shield_1", "name": "Iron Shield", "item_type": "armor", "slot": "main_hand", "properties": {"defense": 2, "icon": "🛡️"}}]
+        self.session.add(WorldObject(
+            name="Armory Crate",
+            obj_type="chest",
+            x=-10, y=11, z=0,
+            properties={"loot": armory_loot, "icon": "📦"}
+        ))
+        
         self.session.commit()
 
     def generate_town(self, z):
@@ -192,9 +216,46 @@ class LevelBuilder:
         # 8x6 building
         place_structure(-4, 4, 9, 7, door_pos=(0, 4)) 
         
-        # Blacksmith (East) - Gareth
-        # 7x6 building
-        place_structure(8, 6, 8, 7, door_pos=(8, 9)) # Door on Left side
+        # Blacksmith (East) - Gareth (7x8)
+        place_structure(8, 6, 8, 7, door_pos=(8, 9))
+        
+        # Alchemist (West) - Seraphina (6x6)
+        place_structure(-14, 6, 7, 7, door_pos=(-8, 9))
+
+        # --- New Decorations ---
+        tiles[(0, 0)] = "fountain"      # Centerpiece
+        
+        # Lamps
+        tiles[(-2, -2)] = "street_lamp"
+        tiles[(2, -2)] = "street_lamp"
+        tiles[(-2, 2)] = "street_lamp"
+        tiles[(2, 2)] = "street_lamp"
+        
+        # Flowers
+        tiles[(1, 4)] = "flower_pot"
+        tiles[(-1, 4)] = "flower_pot"
+        tiles[(-8, 8)] = "flower_pot"   # Alchemist door side
+        tiles[(-8, 10)] = "flower_pot"
+        
+        # Cargo (Barrels/Crates)
+        tiles[(9, 10)] = "barrel"       # Blacksmith
+        tiles[(9, 11)] = "crate"
+        tiles[(8, 5)] = "barrel"        # Corner
+        
+        # Quest Resources: Rocks (East Outskirts)
+        tiles[(12, 8)] = "rock"
+        tiles[(13, 9)] = "rock"
+        tiles[(12, 10)] = "rock"
+        
+        # Quest Resources: Alchemist Garden (West)
+        tiles[(-10, 5)] = "flower_pot" # Side garden
+        tiles[(-11, 5)] = "flower_pot"
+        tiles[(-10, 4)] = "flower_pot"
+        
+        # Signpost
+        tiles[(0, -2)] = "signpost"
+
+        # Interiors
         tiles[(12, 9)] = "anvil" 
         tiles[(13, 9)] = "anvil" 
 
@@ -216,7 +277,7 @@ class LevelBuilder:
             tx = random.randint(-18, 18)
             ty = random.randint(-18, 18)
             # Only put trees on grass
-            if tiles.get((tx,ty)) == "floor":
+            if tiles.get((tx,ty)) == "grass":
                 tiles[(tx,ty)] = "tree"
 
         # 4. Commit to DB

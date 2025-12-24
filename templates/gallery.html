@@ -128,6 +128,8 @@
 
     <div id="library">
         <h2>Asset Library (Drag these)</h2>
+        <input type="text" id="search-box" placeholder="Search assets..."
+            style="width: 100%; padding: 10px; margin-bottom: 20px; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff;">
         <div class="grid" id="asset-grid">Loading...</div>
     </div>
 
@@ -150,7 +152,13 @@
             { id: 'skeleton', label: 'Skeleton Enemy' },
             { id: 'player', label: 'Player Character' },
             { id: 'anvil', label: 'Anvil Prop' },
-            { id: 'shelf', label: 'Shelf Prop' }
+            { id: 'shelf', label: 'Shelf Prop' },
+            { id: 'barrel', label: 'Town Barrel' },
+            { id: 'crate', label: 'Town Crate' },
+            { id: 'street_lamp', label: 'Street Lamp' },
+            { id: 'fountain', label: 'Town Fountain' },
+            { id: 'flower_pot', label: 'Flower Pot' },
+            { id: 'signpost', label: 'Signpost' }
         ];
 
         function toast(msg, color = '#333') {
@@ -177,25 +185,62 @@
         });
 
         // Fetch Library
+        // Fetch Library
+        let allFiles = [];
+
         async function loadLibrary() {
             const res = await fetch('/api/assets/list');
             const data = await res.json();
+            allFiles = data.files;
+            renderGrid(allFiles);
+        }
+
+        function renderGrid(files) {
             const grid = document.getElementById('asset-grid');
             grid.innerHTML = '';
 
-            data.files.forEach(file => {
+            // Limit to 200 items for performance if needed, or pagination. 
+            // But let's verify if pagination is needed later. Paging local array is fast.
+            // For now render all (or top 500).
+
+            files.slice(0, 500).forEach(file => {
                 const div = document.createElement('div');
                 div.className = 'cell';
                 div.draggable = true;
                 div.ondragstart = (e) => e.dataTransfer.setData("text", file);
 
+                // Show relative path or just name? Asset library might have subfolders.
+                // file is like "Tiny_Town/tile_0001.png"
+                div.title = file; // Tooltip
+
                 div.innerHTML = `
-                    <img src="/static/asset_library/${file}">
+                    <img loading="lazy" src="/static/asset_library/${file}">
                     <div class="name">${file.split('/').pop()}</div>
                 `;
                 grid.appendChild(div);
             });
         }
+
+        // Search Filter (Both Sides)
+        document.getElementById('search-box').addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+
+            // 1. Filter Library (Left)
+            const filtered = allFiles.filter(f => f.toLowerCase().includes(query));
+            renderGrid(filtered);
+
+            // 2. Filter Slots (Right)
+            const slots = document.querySelectorAll('.slot-group');
+            slots.forEach(grp => {
+                const text = grp.textContent.toLowerCase();
+                // Matches Title or content (label)
+                if (text.includes(query)) {
+                    grp.style.display = '';
+                } else {
+                    grp.style.display = 'none';
+                }
+            });
+        });
 
         function allowDrop(ev) {
             ev.preventDefault();

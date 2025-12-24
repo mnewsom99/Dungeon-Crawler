@@ -40,6 +40,7 @@
                     <button class="tab-btn active" onclick="switchCharTab('hero')">Hero</button>
                     <button class="tab-btn" onclick="switchCharTab('equipment')">Equip</button>
                     <button class="tab-btn" onclick="switchCharTab('skills')">Skills</button>
+                    <button class="tab-btn" onclick="switchCharTab('crafting')">Craft</button>
                 </div>
                 <!-- Tab Content: Hero -->
                 <div id="hero-char-tab" class="tab-content active" style="align-items: center;">
@@ -92,19 +93,33 @@
                 </div>
                 <!-- Tab Content: Equipment -->
                 <div id="equipment-char-tab" class="tab-content">
-                    <h3>Current Gear</h3>
-                    <ul id="gear-list" style="padding-left: 20px; color: #ccc;">
-                        <li>Leather Armor</li>
-                        <li>Short Sword</li>
-                        <li>Backpack</li>
+                    <h4 style="margin: 5px 0; color: #8f8;">Equipped</h4>
+                    <div id="equipped-slots" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <!-- Updated dynamically -->
+                        <div class="equip-slot" data-slot="main_hand" title="Main Hand">✋ Using Fists</div>
+                        <div class="equip-slot" data-slot="chest" title="Chest">👕 Padded Items</div>
+                    </div>
+
+                    <h4 style="margin: 5px 0; color: #aaa; border-top: 1px solid #444; padding-top: 5px;">Backpack</h4>
+                    <ul id="inventory-list"
+                        style="padding-left: 0; list-style: none; max-height: 150px; overflow-y: auto;">
+                        <li style="color: #666; font-style: italic;">Loading...</li>
                     </ul>
                 </div>
                 <!-- Tab Content: Skills -->
                 <div id="skills-char-tab" class="tab-content">
-                    <h3>Abilities</h3>
-                    <button class="skill-btn" onclick="useSkill('investigate')">
-                        <span style="font-size: 1.2em;">🔍</span> Investigate
-                    </button>
+                    <h4 style="margin: 5px 0; color: #8f8;">Professions</h4>
+                    <div id="skills-list"
+                        style="display:flex; flex-direction:column; gap:5px; max-height: 200px; overflow-y: auto;">
+                        <span style="color:#666; font-style:italic;">No skills learnt.</span>
+                    </div>
+                </div>
+                <!-- Tab Content: Crafting -->
+                <div id="crafting-char-tab" class="tab-content">
+                    <div id="crafting-list"
+                        style="display:flex; flex-direction:column; gap:5px; max-height: 300px; overflow-y: auto;">
+                        <span style="color:#666; font-style:italic;">Loading recipes...</span>
+                    </div>
                 </div>
             </div>
         </aside>
@@ -163,7 +178,8 @@
                 <div class="combat-actions"
                     style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
                     <button onclick="combatAction('attack')" class="btn-combat btn-attack">⚔ Attack</button>
-                    <!-- <button onclick="combatAction('defend')" class="btn-combat btn-defend">🛡 Defend</button> -->
+                    <button onclick="combatAction('second_wind')" class="btn-combat btn-defend"
+                        style="background: #004400; color: #8f8; border-color: #0f0;">💚 Heal</button>
                     <button onclick="combatAction('flee')" class="btn-combat btn-flee">🏃 Flee</button>
                 </div>
             </div>
@@ -173,6 +189,12 @@
         <div style="position: absolute; bottom: 10px; right: 10px; pointer-events: auto;">
             <button onclick="resetGame()"
                 style="background: #500; color: #faa; border: 1px solid #f00; font-size: 10px;">Reset</button>
+        </div>
+
+        <!-- Combat Turn Notification -->
+        <div id="turn-notification">
+            <h2 id="turn-title">Enemy Turn</h2>
+            <div id="turn-content">Thinking...</div>
         </div>
 
         <!-- Chat Modal -->
@@ -191,7 +213,45 @@
                     <input type="text" id="chat-input" placeholder="Say something..."
                         onkeydown="if(event.key==='Enter') sendChat()">
                     <button onclick="sendChat()" style="padding: 10px;">Send</button>
+                    <!-- Trade Button injected dynamically if merchant -->
+                    <button id="chat-trade-btn" onclick="openShop(activeChatNPCName)"
+                        style="display:none; margin-left:10px; background:#d4af37; color:#000;">💰 Trade</button>
                 </div>
+            </div>
+        </div>
+
+        <!-- Shop Modal -->
+        <div id="shop-modal" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); width: 400px; height: 500px; z-index: 200; background: #1a1a1a; border: 2px solid #d4af37;">
+            <div class="drag-handle" style="background: #8a6e25; color: #fff;">
+                <span class="panel-title">MERCHANT</span>
+                <span class="minimize-btn" onclick="document.getElementById('shop-modal').style.display='none'">X</span>
+            </div>
+            <div class="panel-content" style="padding: 0;">
+                <div
+                    style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between;">
+                    <span id="shop-merchant-name" style="font-weight: bold; color: #d4af37;">Merchant</span>
+                    <span style="color: #ffd700;">Gold: <span id="shop-player-gold">0</span>g</span>
+                </div>
+                <div id="shop-list" style="padding: 10px; overflow-y: auto; height: 400px;">
+                    <!-- Items go here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Loot Modal -->
+        <div id="loot-modal" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 20%; left: 50%; transform: translateX(-50%); width: 300px; height: auto; min-height: 200px; z-index: 200; background: #1a0a0a; border: 2px solid #800;">
+            <div class="drag-handle" style="background: #800; color: #fff;">
+                <span class="panel-title" id="loot-title">LOOT</span>
+                <span class="minimize-btn" onclick="document.getElementById('loot-modal').style.display='none'">X</span>
+            </div>
+            <div style="padding: 10px; color: #ccc;">
+                <div id="loot-list" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+            <div style="padding: 10px; text-align: center; border-top: 1px solid #400;">
+                <button onclick="document.getElementById('loot-modal').style.display='none'"
+                    style="background: #400; color: #fff; padding: 5px 10px;">Close</button>
             </div>
         </div>
 

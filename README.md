@@ -23,3 +23,18 @@ A new dungeon crawler game project.
   - Travel between zones (Dungeon ↔ Oakhaven Town).
 - **Asset Manager**: Built-in `/gallery` tool to easily swap and assign game textures.
 - **Persistence**: SQLite database saves player state, inventory, and world changes automatically.
+
+## 🎮 Controls
+*   **Keyboard**: Arrow Keys or WASD.
+*   **Mouse**: **Click and Hold** on the map to move. Supports diagonal movement.
+*   **UI**: Draggable panels. Double-click title bars to minimize.
+
+## 🏘️ Town of Oakhaven
+The game now features the Town of Oakhaven (Zone 1).
+*   **Locales**: Town Hall, Alchemist Shop, Blacksmith.
+*   **Decorations**: Fountains, Lamps, Flora (customizable via Asset Gallery).
+
+## 🛠️ Tools
+*   `python tools/optimize_assets.py`: Resizes large assets to 32x32 for performance.
+*   `python tools/update_game.py`: Utility to fix NPC positions.
+*   `/gallery`: Browser tool to assign sprites to game objects.
