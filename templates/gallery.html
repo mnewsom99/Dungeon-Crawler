@@ -3,68 +3,237 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Sprite Gallery</title>
+    <title>Asset Builder</title>
     <style>
         body {
             background: #111;
             color: #eee;
-            font-family: monospace;
+            font-family: sans-serif;
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        /* Left: Library */
+        #library {
+            width: 60%;
+            height: 100%;
+            overflow-y: auto;
+            border-right: 2px solid #333;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
             gap: 10px;
-            padding: 20px;
         }
 
         .cell {
             text-align: center;
-            border: 1px solid #333;
+            cursor: grab;
             padding: 5px;
+            border: 1px solid #333;
+            background: #222;
         }
 
-        img {
-            width: 32px;
-            height: 32px;
+        .cell:hover {
+            background: #444;
+        }
+
+        .cell img {
+            width: 48px;
+            height: 48px;
             image-rendering: pixelated;
         }
 
-        /* Zoomed in */
-        .name {
+        .cell .name {
             font-size: 10px;
-            margin-top: 5px;
             color: #aaa;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 60px;
+            margin: 0 auto;
+        }
+
+        /* Right: Slots */
+        #slots {
+            width: 40%;
+            height: 100%;
+            overflow-y: auto;
+            padding: 20px;
+            background: #1a1a1a;
+            box-sizing: border-box;
+        }
+
+        h2 {
+            margin-top: 0;
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+        }
+
+        .slot-group {
+            margin-bottom: 30px;
+        }
+
+        .slot-title {
+            font-weight: bold;
+            color: #0f0;
+            margin-bottom: 5px;
+        }
+
+        .slot-target {
+            background: #222;
+            border: 2px dashed #555;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            min-height: 50px;
+            transition: background 0.2s;
+        }
+
+        .slot-target.drag-over {
+            background: #333;
+            border-color: #fff;
+        }
+
+        .slot-target img {
+            width: 40px;
+            height: 40px;
+            image-rendering: pixelated;
+            border: 1px solid #555;
+            background: #000;
+        }
+
+        /* Messages */
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #333;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 5px;
+            opacity: 0;
+            transition: opacity 0.5s;
         }
     </style>
 </head>
 
 <body>
-    <h1>Sprite Gallery</h1>
-    <p>Please note the Filename of the sprites you want to use.</p>
-    <div class="grid">
-        <!-- I will use JS to populate this to avoid typing 160 lines -->
+
+    <div id="library">
+        <h2>Asset Library (Drag these)</h2>
+        <div class="grid" id="asset-grid">Loading...</div>
     </div>
+
+    <div id="slots">
+        <h2>Active Game Tiles (Drop here)</h2>
+        <div id="slot-container"></div>
+    </div>
+
+    <div id="toast"></div>
+
     <script>
-        const grid = document.querySelector('.grid');
-        for (let i = 0; i <= 159; i++) {
-            const num = String(i).padStart(4, '0');
-            const name = `tile_${num}.png`;
+        const ROLES = [
+            { id: 'wall_grey', label: 'Dungeon Wall' },
+            { id: 'door', label: 'Dungeon Door' },
+            { id: 'floor_wood', label: 'Town Floor (Wood)' },
+            { id: 'grass', label: 'Town Grass' },
+            { id: 'water', label: 'Town Water' },
+            { id: 'tree', label: 'Town Tree' },
+            { id: 'wall_house', label: 'Town House Wall' },
+            { id: 'skeleton', label: 'Skeleton Enemy' },
+            { id: 'player', label: 'Player Character' },
+            { id: 'anvil', label: 'Anvil Prop' },
+            { id: 'shelf', label: 'Shelf Prop' }
+        ];
 
-            const div = document.createElement('div');
-            div.className = 'cell';
-
-            const img = document.createElement('img');
-            img.src = `/static/img/${name}`;
-
-            const label = document.createElement('div');
-            label.className = 'name';
-            label.textContent = num;
-
-            div.appendChild(img);
-            div.appendChild(label);
-            grid.appendChild(div);
+        function toast(msg, color = '#333') {
+            const el = document.getElementById('toast');
+            el.textContent = msg;
+            el.style.background = color;
+            el.style.opacity = 1;
+            setTimeout(() => el.style.opacity = 0, 3000);
         }
+
+        // Init Slots
+        const slotContainer = document.getElementById('slot-container');
+        ROLES.forEach(role => {
+            const div = document.createElement('div');
+            div.className = 'slot-group';
+            div.innerHTML = `
+                <div class="slot-title">${role.label}</div>
+                <div class="slot-target" ondrop="drop(event, '${role.id}')" ondragover="allowDrop(event)">
+                    <img src="/static/img/${role.id}.png?t=${Date.now()}" onerror="this.src='https://placehold.co/40x40/black/white?text=?'">
+                    <span>Drop new image here</span>
+                </div>
+            `;
+            slotContainer.appendChild(div);
+        });
+
+        // Fetch Library
+        async function loadLibrary() {
+            const res = await fetch('/api/assets/list');
+            const data = await res.json();
+            const grid = document.getElementById('asset-grid');
+            grid.innerHTML = '';
+
+            data.files.forEach(file => {
+                const div = document.createElement('div');
+                div.className = 'cell';
+                div.draggable = true;
+                div.ondragstart = (e) => e.dataTransfer.setData("text", file);
+
+                div.innerHTML = `
+                    <img src="/static/asset_library/${file}">
+                    <div class="name">${file.split('/').pop()}</div>
+                `;
+                grid.appendChild(div);
+            });
+        }
+
+        function allowDrop(ev) {
+            ev.preventDefault();
+            ev.currentTarget.classList.add('drag-over');
+        }
+
+        document.addEventListener('dragleave', (e) => {
+            if (e.target.classList && e.target.classList.contains('slot-target')) {
+                e.target.classList.remove('drag-over');
+            }
+        });
+
+        async function drop(ev, roleId) {
+            ev.preventDefault();
+            ev.currentTarget.classList.remove('drag-over');
+            const fileName = ev.dataTransfer.getData("text");
+
+            const res = await fetch('/api/assets/assign', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ source: fileName, role: roleId })
+            });
+            const data = await res.json();
+
+            if (data.error) {
+                toast("Error: " + data.error, '#900');
+                ev.currentTarget.style.borderColor = 'red';
+            } else {
+                toast("Saved " + roleId, '#090');
+                // Refresh Image (with cache bust)
+                const img = ev.currentTarget.querySelector('img');
+                img.src = `/static/img/${roleId}.png?t=${Date.now()}`;
+                ev.currentTarget.style.borderColor = '#0f0';
+                setTimeout(() => ev.currentTarget.style.borderColor = '#555', 1000);
+            }
+        }
+
+        loadLibrary();
     </script>
 </body>
 

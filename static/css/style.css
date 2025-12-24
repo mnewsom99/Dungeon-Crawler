@@ -1,19 +1,195 @@
 body {
-    background-color: #1a1a1a;
+    background-color: #000;
     color: #00ff00;
-    /* Retro terminal green */
     font-family: 'Courier New', Courier, monospace;
     margin: 0;
+    overflow: hidden;
+    /* No scrolling, full screen app */
+    width: 100vw;
+    height: 100vh;
+}
+
+#map-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    min-width: 100vw;
+    /* Ensure it covers */
+    min-height: 100vh;
+}
+
+/* Floating Panels */
+/* Floating Panels */
+.draggable-panel {
+    background: rgba(20, 20, 20, 0.95);
+    border: 3px solid #555;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.9);
     display: flex;
     flex-direction: column;
-    /* Stack header and container vertically */
-    justify-content: flex-start;
-    /* Start from top */
-    align-items: center;
-    /* Horizontally center */
-    min-height: 100vh;
-    padding-bottom: 20px;
+    min-width: 250px;
+    resize: both;
+    overflow: hidden;
+    z-index: 100;
+    font-family: 'Verdana', sans-serif;
+    color: #ddd;
 }
+
+.drag-handle {
+    background: #222;
+    color: #fff;
+    padding: 10px 15px;
+    cursor: move;
+    font-weight: bold;
+    border-bottom: 2px solid #555;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.minimize-btn {
+    cursor: pointer;
+    font-weight: bold;
+    color: #888;
+}
+
+.minimize-btn:hover {
+    color: #fff;
+}
+
+.panel-content {
+    padding: 10px;
+    overflow-y: auto;
+    max-height: 500px;
+}
+
+/* Reused Styles with Tweaks */
+.tab-header {
+    display: flex;
+    background-color: #1a1a1a;
+    border-bottom: 2px solid #555;
+    margin-bottom: 5px;
+}
+
+.tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #888;
+    padding: 8px 0;
+    cursor: pointer;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.tab-btn:hover {
+    color: #fff;
+    background: #333;
+}
+
+.tab-btn.active {
+    color: #fff;
+    background: #444;
+    border-bottom: 2px solid #fff;
+}
+
+.tab-content {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tab-content.active {
+    display: flex;
+}
+
+.stat-table {
+    width: 100%;
+    font-size: 11px;
+    border-collapse: collapse;
+}
+
+.stat-table td {
+    border-bottom: 1px solid #333;
+    padding: 2px;
+}
+
+/* Log Styling */
+#log-content {
+    font-size: 12px;
+    color: #ccc;
+}
+
+.log-entry {
+    margin-bottom: 4px;
+}
+
+/* Hide Old Styles */
+.container,
+.game-area,
+#controls {
+    display: none !important;
+}
+
+/* RPG Chat Popup */
+#chat-modal {
+    position: fixed;
+    bottom: 220px;
+    /* Above the log */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 180px;
+    background: rgba(20, 10, 5, 0.95);
+    border: 2px solid #8B4513;
+    z-index: 2000;
+    display: none;
+    /* JS toggles flex */
+    flex-direction: row;
+}
+
+#chat-portrait {
+    width: 120px;
+    background: #000;
+    background-size: cover;
+    background-position: center;
+    border-right: 2px solid #5c4033;
+}
+
+#chat-content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 10px;
+    font-family: serif;
+    color: #e0d0b0;
+}
+
+#chat-history {
+    flex: 1;
+    overflow-y: auto;
+    margin-bottom: 10px;
+}
+
+#chat-input-area {
+    display: flex;
+    gap: 5px;
+}
+
+#chat-input {
+    flex: 1;
+    background: #222;
+    border: 1px solid #555;
+    color: #fff;
+}
+
+
 
 /* Main Layout: 2 Columns */
 .container {
@@ -30,8 +206,7 @@ body {
     background: #222;
     border: 3px solid #004400;
     box-shadow: 0 0 20px #002200 inset;
-    width: 100%;
-    height: 100%;
+
 }
 
 /* Character Sheet (Left Panel) */
@@ -39,14 +214,34 @@ body {
     width: 300px;
     background-color: #111;
     border: 2px solid #004400;
-    padding: 15px;
+    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 15px;
     height: 600px;
     /* Match game view */
-    overflow-y: auto;
+    overflow: hidden;
 }
+
+.skill-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #222;
+    border: 1px solid #004400;
+    color: #00ff00;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: inherit;
+    text-transform: uppercase;
+}
+
+.skill-btn:hover {
+    background-color: #003300;
+}
+
+
 
 .char-img {
     width: 100%;
@@ -91,12 +286,64 @@ body {
     width: 250px;
     background-color: #111;
     border: 2px solid #004400;
-    padding: 15px;
+    padding: 0;
+    /* Removing padding to let tabs sit flush */
     display: flex;
     flex-direction: column;
-    gap: 15px;
     height: 600px;
+    overflow: hidden;
+    /* Hide overflow for tab container */
+}
+
+/* Tab Headers */
+.tab-header {
+    display: flex;
+    background-color: #002200;
+    border-bottom: 2px solid #004400;
+}
+
+.tab-btn {
+    flex: 1;
+    background: none;
+    border: none;
+    border-right: 1px solid #004400;
+    color: #008800;
+    padding: 10px 0;
+    cursor: pointer;
+    font-size: 11px;
+    text-transform: uppercase;
+    font-weight: bold;
+    box-shadow: none;
+}
+
+.tab-btn:hover {
+    background-color: #003300;
+    color: #00cc00;
+}
+
+.tab-btn.active {
+    background-color: #111;
+    color: #00ff00;
+    border-bottom: 2px solid #111;
+    /* Blend into content */
+    margin-bottom: -2px;
+    /* Pull down over border */
+    z-index: 10;
+}
+
+/* Tab Content Areas */
+.tab-content {
+    padding: 15px;
     overflow-y: auto;
+    flex-grow: 1;
+    display: none;
+    /* Hidden by default */
+    gap: 15px;
+    flex-direction: column;
+}
+
+.tab-content.active {
+    display: flex;
 }
 
 .interaction-item {
@@ -193,6 +440,240 @@ button:hover {
     background: #444;
 }
 
-::-webkit-scrollbar-track {
-    background: #111;
+
+/* Chat/* --- RPG Chat UI --- */
+#chat-modal {
+    display: none;
+    /* Controlled by JS */
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 900px;
+    height: 200px;
+    background: rgba(18, 14, 11, 0.95);
+    /* Deep dark brown */
+    border: 3px solid #8B4513;
+    /* SaddleBrown border */
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+    z-index: 2000;
+
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
 }
+
+#chat-portrait {
+    width: 180px;
+    height: 100%;
+    background-color: #000;
+    border-right: 3px solid #8B4513;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    flex-shrink: 0;
+}
+
+#chat-content-wrapper {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+    color: #e0d0b0;
+    /* Parchment white */
+    font-family: 'Georgia', serif;
+}
+
+#chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid #5c4033;
+    padding-bottom: 5px;
+    margin-bottom: 10px;
+}
+
+#chat-npc-name {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #ffaa00;
+    /* Gold */
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.close-btn {
+    color: #fff;
+}
+
+.chat-history {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #111;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.chat-message {
+    padding: 10px;
+    border-radius: 5px;
+    max-width: 80%;
+    line-height: 1.4;
+}
+
+.chat-message.npc {
+    background: #002222;
+    color: #00ffff;
+    align-self: flex-start;
+    border-left: 3px solid #00ffff;
+}
+
+.chat-message.user {
+    background: #333;
+    color: #fff;
+    align-self: flex-end;
+    border-right: 3px solid #ccc;
+    text-align: right;
+}
+
+#game-canvas {
+    background-color: #000;
+    display: block;
+    margin: 0 auto;
+    border: 2px solid #330033;
+    image-rendering: pixelated;
+    /* Essential for pixel art! */
+}
+
+.chat-input-area {
+    padding: 15px;
+    background: #222;
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid #444;
+}
+
+.chat-input-area input {
+    flex-grow: 1;
+    padding: 12px;
+    background: #000;
+    color: #00ff00;
+    border: 1px solid #444;
+    font-family: inherit;
+}
+/* Combat UI Styles */
+.btn-combat {
+    font-size: 14px;
+    padding: 10px 15px;
+    border: 2px solid #555;
+    text-transform: uppercase;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-attack {
+    background: #4a0404;
+    color: #ffaaaa;
+    border-color: #800;
+}
+.btn-attack:hover {
+    background: #800;
+    box-shadow: 0 0 10px #f00;
+}
+
+.btn-flee {
+    background: #222;
+    color: #aaa;
+}
+.btn-flee:hover {
+    background: #444;
+    color: #fff;
+}
+
+
+/* Overwrite Chat Styles */
+#chat-modal {
+    bottom: 220px !important;
+    width: 600px !important;
+    height: 250px !important;
+    background: rgba(20, 10, 5, 0.98) !important;
+    pointer-events: auto !important;
+}
+#chat-portrait {
+    width: 150px !important;
+    position: relative !important;
+}
+#chat-overlaid-name {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #ffd700;
+    padding: 2px 6px;
+    font-size: 11px;
+    border-radius: 3px;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 #000;
+}
+#chat-history {
+    background: rgba(0,0,0,0.3) !important;
+    color: #e0d0b0 !important;
+}
+.chat-message {
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    margin-bottom: 8px !important;
+    font-size: 12px !important;
+}
+.chat-message.npc {
+    background: #0d2b2b !important;
+    color: #ccffff !important;
+    border-left: 4px solid #00ffff !important;
+}
+.chat-message.user {
+    background: #333333 !important;
+    color: #ffffff !important;
+    border-right: 4px solid #cccccc !important;
+}
+
+
+/* Overwrite Close Button Again to be sure */
+#chat-header {
+    display: block !important;
+    position: absolute !important;
+    top: 5px !important;
+    right: 5px !important;
+    width: auto !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    pointer-events: auto !important;
+}
+
+.close-btn {
+    background: #300 !important;
+    color: #f88 !important;
+    border: 1px solid #500 !important;
+    width: 24px !important;
+    height: 24px !important;
+    line-height: 20px !important;
+    text-align: center !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+    font-size: 16px !important;
+    padding: 0 !important;
+    display: block !important;
+    margin: 0 !important;
+    border-radius: 4px; /* Optional, nice touch */
+}
+.close-btn:hover {
+    background: #600 !important;
+    color: #fff !important;
+}
+

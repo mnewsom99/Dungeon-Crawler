@@ -9,142 +9,199 @@
 </head>
 
 <body>
-    <header style="width: 100%; text-align: center; padding: 20px 0;">
-        <h1
-            style="color: #00ff00; margin: 0; text-transform: uppercase; letter-spacing: 5px; text-shadow: 0 0 10px #004400;">
-            Dungeon Crawler</h1>
-    </header>
 
-    <div class="container">
+
+    <!-- Full Screen Game View -->
+    <div id="game-view"
+        style="position: absolute; top:0; left:0; width:100vw; height:100vh; z-index: 0; background: #000;">
+        <canvas id="map-canvas"></canvas>
+        <div id="vignette"
+            style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, transparent 50%, black 150%);">
+        </div>
+    </div>
+
+
+    <!-- UI Overlay Container (Pointer events fall through unless on panel) -->
+    <div id="ui-layer"
+        style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; z-index: 10;">
+
+        <!-- Header (Floating) -->
+        <header style="text-align: center; padding: 10px; pointer-events: none;">
+            <h1 style="color: #00ff00; margin: 0; opacity: 0.8; text-shadow: 0 0 5px #000;">Dungeon Crawler</h1>
+        </header>
+
         <!-- Left Panel: Character Sheet -->
-        <aside id="char-sheet">
-            <h2 style="text-align: center; border-bottom: 2px solid #004400; padding-bottom: 5px;">HERO</h2>
-            <img id="char-image" src="{{ url_for('static', filename='img/player.png') }}" class="char-img"
-                alt="Character Portrait">
-
-            <div class="stat-block">
-                <h3>Stats</h3>
-                <table class="stat-table">
-                    <thead>
-                        <tr>
-                            <th>Stat</th>
-                            <th>Value</th>
-                            <th>Description</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stat-body">
-                        <!-- Populated by JS -->
-                        <tr>
-                            <td>STR</td>
-                            <td id="stat-str">10</td>
-                            <td>Physical power</td>
-                        </tr>
-                        <tr>
-                            <td>DEX</td>
-                            <td id="stat-dex">10</td>
-                            <td>Agility</td>
-                        </tr>
-                        <tr>
-                            <td>CON</td>
-                            <td id="stat-con">10</td>
-                            <td>Endurance</td>
-                        </tr>
-                        <tr>
-                            <td>INT</td>
-                            <td id="stat-int">10</td>
-                            <td>Reasoning</td>
-                        </tr>
-                        <tr>
-                            <td>WIS</td>
-                            <td id="stat-wis">10</td>
-                            <td>Intuition</td>
-                        </tr>
-                        <tr>
-                            <td>CHA</td>
-                            <td id="stat-cha">10</td>
-                            <td>Presence</td>
-                        </tr>
-                    </tbody>
-                </table>
+        <aside id="char-sheet" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; left: 20px; top: 80px;">
+            <div class="drag-handle"><span class="panel-title">HERO STATUS</span> <span class="minimize-btn">_</span>
             </div>
-
-            <div class="stat-block">
-                <h3>Gear</h3>
-                <ul id="gear-list" style="padding-left: 20px; color: #ccc;">
-                    <li>Leather Armor</li>
-                    <li>Short Sword</li>
-                    <li>Backpack</li>
-                </ul>
+            <div class="panel-content">
+                <div class="tab-header">
+                    <button class="tab-btn active" onclick="switchCharTab('hero')">Hero</button>
+                    <button class="tab-btn" onclick="switchCharTab('equipment')">Equip</button>
+                    <button class="tab-btn" onclick="switchCharTab('skills')">Skills</button>
+                </div>
+                <!-- Tab Content: Hero -->
+                <div id="hero-char-tab" class="tab-content active" style="align-items: center;">
+                    <img id="char-image" src="{{ url_for('static', filename='img/player.png') }}" class="char-img"
+                        alt="Character Portrait">
+                    <div class="stat-block" style="width: 100%;">
+                        <h3>Stats</h3>
+                        <table class="stat-table">
+                            <thead>
+                                <tr>
+                                    <th>Stat</th>
+                                    <th>Value</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stat-body">
+                                <tr>
+                                    <td>STR</td>
+                                    <td id="stat-str">10</td>
+                                    <td>Physical power</td>
+                                </tr>
+                                <tr>
+                                    <td>DEX</td>
+                                    <td id="stat-dex">10</td>
+                                    <td>Agility</td>
+                                </tr>
+                                <tr>
+                                    <td>CON</td>
+                                    <td id="stat-con">10</td>
+                                    <td>Endurance</td>
+                                </tr>
+                                <tr>
+                                    <td>INT</td>
+                                    <td id="stat-int">10</td>
+                                    <td>Reasoning</td>
+                                </tr>
+                                <tr>
+                                    <td>WIS</td>
+                                    <td id="stat-wis">10</td>
+                                    <td>Intuition</td>
+                                </tr>
+                                <tr>
+                                    <td>CHA</td>
+                                    <td id="stat-cha">10</td>
+                                    <td>Presence</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Tab Content: Equipment -->
+                <div id="equipment-char-tab" class="tab-content">
+                    <h3>Current Gear</h3>
+                    <ul id="gear-list" style="padding-left: 20px; color: #ccc;">
+                        <li>Leather Armor</li>
+                        <li>Short Sword</li>
+                        <li>Backpack</li>
+                    </ul>
+                </div>
+                <!-- Tab Content: Skills -->
+                <div id="skills-char-tab" class="tab-content">
+                    <h3>Abilities</h3>
+                    <button class="skill-btn" onclick="useSkill('investigate')">
+                        <span style="font-size: 1.2em;">🔍</span> Investigate
+                    </button>
+                </div>
             </div>
         </aside>
-
-        <!-- Right Panel: Game Area -->
-        <main class="game-area">
-
-            <div id="game-view">
-                <canvas id="map-canvas" width="600" height="400"></canvas>
-            </div>
-
-            <div id="narrative-log">
-                <p class="system-msg">Welcome to the dungeon...</p>
-            </div>
-
-            <div id="controls">
-                <div class="control-row">
-                    <button onclick="changeZoom(5)" title="Zoom In">+</button>
-                    <button onclick="changeZoom(-5)" title="Zoom Out">-</button>
-                    <button onclick="toggleMap()" title="View Map">Map</button>
-                    <div style="width: 20px;"></div> <!-- Spacer -->
-                    <button onclick="combatAction('flee')" title="Panic Button">⚠</button>
-                    <button onclick="resetGame()" style="background: #500; color: #faa; border: 1px solid #f00;"
-                        title="Reset Game">Reset</button>
-                </div>
-
-                <!-- D-Pad Grid Layout -->
-                <div class="dpad-grid">
-                    <div class="dpad-empty"></div>
-                    <button onclick="move('north')">N</button>
-                    <div class="dpad-empty"></div>
-
-                    <button onclick="move('west')">W</button>
-                    <button onclick="move('south')">S</button>
-                    <button onclick="move('east')">E</button>
-                </div>
-            </div>
-
-            <!-- Map Modal -->
-            <div id="map-modal"
-                style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center;">
-                <div style="text-align: center; color: white;">
-                    <h2>Dungeon Map</h2>
-                    <canvas id="full-map-canvas" width="800" height="600"
-                        style="border: 2px solid #555; background: #111;"></canvas>
-                    <br>
-                    <button onclick="toggleMap()"
-                        style="padding: 10px 20px; font-size: 16px; margin-top: 10px; cursor: pointer;">Close</button>
-                </div>
-            </div>
-
-            <div id="combat-controls" style="display: none; margin-top: 20px;">
-                <h3>Combat Active!</h3>
-                <div class="control-row">
-                    <button onclick="combatAction('attack')" style="border-color: #ff4444;">Attack (Sword)</button>
-                    <button onclick="combatAction('unarmed')">Kick/Punch</button>
-                    <button onclick="combatAction('flee')">Flee</button>
-                </div>
-            </div>
-        </main>
 
         <!-- Right Panel: Interaction -->
-        <aside id="interaction-panel">
-            <h2 style="text-align: center; border-bottom: 2px solid #004400; padding-bottom: 5px;">NEARBY</h2>
-            <div id="nearby-list">
-                <!-- Populated by JS -->
-                <p style="color: #666; font-style: italic;">Nothing of interest...</p>
+        <aside id="interaction-panel" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; right: 20px; top: 80px;">
+            <div class="drag-handle"><span class="panel-title">INTERACTION</span> <span class="minimize-btn">_</span>
+            </div>
+            <div class="panel-content">
+                <div class="tab-header">
+                    <button class="tab-btn active" onclick="switchTab('nearby')">Nearby</button>
+                    <button class="tab-btn" onclick="switchTab('items')">Items</button>
+                    <button class="tab-btn" onclick="switchTab('quest')">Quest</button>
+                </div>
+                <div id="nearby-tab" class="tab-content active">
+                    <div id="nearby-list">
+                        <p style="color: #666; font-style: italic;">Nothing of interest...</p>
+                    </div>
+                </div>
+                <div id="items-tab" class="tab-content">
+                    <div id="items-list">
+                        <p style="color: #666; font-style: italic;">Your bag is empty.</p>
+                    </div>
+                </div>
+                <div id="quest-tab" class="tab-content">
+                    <div id="quest-list">
+                        <p style="color: #666; font-style: italic;">No active quests.</p>
+                    </div>
+                </div>
             </div>
         </aside>
+
+        <!-- Log as Floating Popup -->
+        <div id="narrative-log" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 600px; max-height: 200px;">
+            <div class="drag-handle"><span class="panel-title">ADVENTURE LOG</span> <span class="minimize-btn">_</span>
+            </div>
+            <div id="log-content" style="padding: 10px; overflow-y: auto; max-height: 150px;">
+                <p class="system-msg">Welcome to the dungeon...</p>
+            </div>
+        </div>
+
+        <!-- Combat Panel (Hidden by default) -->
+        <div id="combat-controls" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 150px; left: 50%; transform: translateX(-50%); width: 300px; border: 2px solid #800; background: rgba(20, 0, 0, 0.9); z-index: 100;">
+            <div class="drag-handle" style="background: #400;"><span class="panel-title"
+                    style="color: #fca;">COMBAT</span> <span class="minimize-btn">_</span></div>
+            <div class="panel-content" style="text-align: center; padding: 15px;">
+                <h3 id="combat-enemy-name" style="color: #ff4444; margin-top: 0;">Enemy</h3>
+                <div style="margin: 10px 0;">
+                    <span style="color: #aaa;">HP:</span>
+                    <span id="combat-enemy-hp" style="color: #fff; font-weight: bold;">?</span>
+                </div>
+
+                <div class="combat-actions"
+                    style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
+                    <button onclick="combatAction('attack')" class="btn-combat btn-attack">⚔ Attack</button>
+                    <!-- <button onclick="combatAction('defend')" class="btn-combat btn-defend">🛡 Defend</button> -->
+                    <button onclick="combatAction('flee')" class="btn-combat btn-flee">🏃 Flee</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls (Minimal/Hidden or Reset Only) -->
+        <div style="position: absolute; bottom: 10px; right: 10px; pointer-events: auto;">
+            <button onclick="resetGame()"
+                style="background: #500; color: #faa; border: 1px solid #f00; font-size: 10px;">Reset</button>
+        </div>
+
+        <!-- Chat Modal -->
+        <!-- Chat Modal -->
+        <div id="chat-modal" style="display: none; pointer-events: auto;">
+            <div id="chat-portrait" style="background-image: url('static/img/player.png');">
+                <span id="chat-overlaid-name">NPC Name</span>
+            </div>
+            <div id="chat-content-wrapper">
+                <div id="chat-header">
+                    <button class="close-btn" onclick="closeChat()"
+                        style="background:none; border:none; font-size:1.5em; cursor:pointer;">&times;</button>
+                </div>
+                <div id="chat-history"></div>
+                <div id="chat-input-area" class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="Say something..."
+                        onkeydown="if(event.key==='Enter') sendChat()">
+                    <button onclick="sendChat()" style="padding: 10px;">Send</button>
+                </div>
+            </div>
+        </div>
+
     </div>
-    <script src="{{ url_for('static', filename='js/game.js') }}?v=1"></script>
+
+    <!-- Game Modules -->
+    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=1"></script>
 </body>
 
 </html>

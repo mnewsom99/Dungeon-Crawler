@@ -13,7 +13,7 @@ function requestRedraw() {
 
 // Image Assets
 // Environment: Using new Tiny Town Tiles
-const floorImg = new Image(); floorImg.src = "/static/img/tile_0000.png"; // Grass
+const floorImg = new Image(); floorImg.src = "/static/img/grey_black_floor_tile.png"; // Stone/Dark Floor
 const wallImg = new Image(); wallImg.src = "/static/img/tile_0049.png"; // Brick Wall
 
 // Characters: Using New Assets
@@ -58,14 +58,8 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     if (!cameraPos) cameraPos = [...playerPos];
 
     // Camera Logic
-    const BOUNDARY_X = 3;
-    const BOUNDARY_Y = 2;
-    let dx = playerPos[0] - cameraPos[0];
-    let dy = playerPos[1] - cameraPos[1];
-    if (dx > BOUNDARY_X) cameraPos[0] += (dx - BOUNDARY_X);
-    if (dx < -BOUNDARY_X) cameraPos[0] += (dx + BOUNDARY_X);
-    if (dy > BOUNDARY_Y) cameraPos[1] += (dy - BOUNDARY_Y);
-    if (dy < -BOUNDARY_Y) cameraPos[1] += (dy + BOUNDARY_Y);
+    // Camera Logic (Locked)
+    cameraPos = [...playerPos];
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = "#1e1e1e"; // Darker Background
@@ -77,41 +71,111 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     const DRAW_RADIUS_X = Math.ceil(canvas.width / (2 * TILE_SIZE)) + 2;
     const DRAW_RADIUS_Y = Math.ceil(canvas.height / (2 * TILE_SIZE)) + 2;
 
-    for (let x = -DRAW_RADIUS_X; x <= DRAW_RADIUS_X; x++) {
-        for (let y = -DRAW_RADIUS_Y; y <= DRAW_RADIUS_Y; y++) {
-            const worldX = Math.floor(cameraPos[0] + x);
-            const worldY = Math.floor(cameraPos[1] + y);
-            const worldZ = cameraPos[2];
+    // Generic Rendering
+    const isSurface = playerPos[2] > 0;
 
-            const drawX = centerX + (worldX - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
-            const drawY = centerY + (worldY - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
+    for (const tileKey in visibleMap) {
+        const [worldX, worldY, worldZ] = tileKey.split(',').map(Number); // Assuming tileKey is "x,y,z"
 
-            const tileKey = `${worldX},${worldY},${worldZ}`;
-            const tileType = visibleMap[tileKey];
+        // Only draw tiles that are on the same Z-level as the player
+        if (worldZ !== playerPos[2]) continue;
 
-            if (tileType) {
-                if (tileType === 'floor') {
-                    // Draw Colored Floor Directly
-                    if (floorImg.complete) ctx.drawImage(floorImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    else { ctx.fillStyle = '#2e3b28'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
-                } else if (tileType === 'wall') {
-                    // Draw Colored Wall Directly
-                    if (wallImg.complete) ctx.drawImage(wallImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    else { ctx.fillStyle = '#a05b35'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
-                } else {
-                    ctx.fillStyle = '#111';
-                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                }
+        // Convert World Coords to Canvas Coords
+        const drawX = centerX + (worldX - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
+        const drawY = centerY + (worldY - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
 
-                // LOS / Lighting Overlay
-                const dist = Math.sqrt(Math.pow(worldX - playerPos[0], 2) + Math.pow(worldY - playerPos[1], 2));
-                if (dist > 5) {
-                    ctx.fillStyle = `rgba(0, 0, 0, ${Math.min((dist - 5) * 0.2, 0.9)})`;
-                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                }
+        const tileType = visibleMap[tileKey];
+
+        // --- TILE RENDERING ---
+        if (tileType === 'floor') {
+            if (playerPos[2] == '1') { // Check Z-level from player position
+                // Town Grass
+                ctx.fillStyle = '#228b22'; // Forest Green
+                ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+                // Add blade texture
+                ctx.fillStyle = '#006400';
+                ctx.fillRect(drawX + 8, drawY + 8, 2, 4);
+                ctx.fillRect(drawX + 20, drawY + 14, 2, 4);
+            } else {
+                // Dungeon Floor
+                if (floorImg.complete && floorImg.naturalHeight !== 0) ctx.drawImage(floorImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
+                else { ctx.fillStyle = '#2b2b2b'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
             }
+        } else if (tileType === 'floor_wood') {
+            // Interior Wood Floor
+            ctx.fillStyle = '#8B4513'; // SaddleBrown
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Plank lines
+            ctx.fillStyle = '#5c2e0e';
+            ctx.fillRect(drawX, drawY + 7, TILE_SIZE, 1);
+            ctx.fillRect(drawX, drawY + 15, TILE_SIZE, 1);
+            ctx.fillRect(drawX, drawY + 23, TILE_SIZE, 1);
+        } else if (tileType === 'water') {
+            ctx.fillStyle = '#4169E1'; // RoyalBlue
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Ripple
+            ctx.fillStyle = '#87CEFA';
+            ctx.fillRect(drawX + 8, drawY + 8, 8, 2);
+        } else if (tileType === 'tree') {
+            // Grass Background
+            ctx.fillStyle = '#228b22';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Tree Trunk
+            ctx.fillStyle = '#4b3621';
+            ctx.fillRect(drawX + 12, drawY + 16, 8, 16);
+            // Tree Top (Circle-ish)
+            ctx.fillStyle = '#006400';
+            ctx.beginPath();
+            ctx.arc(drawX + 16, drawY + 12, 12, 0, 2 * Math.PI);
+            ctx.fill();
+        } else if (tileType === 'wall' || tileType === 'wall_house') {
+            // Standard Wall / House Wall
+            if (wallImg.complete) ctx.drawImage(wallImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
+            else { ctx.fillStyle = '#a05b35'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
+        } else if (tileType === 'door') {
+            // Floor background
+            ctx.fillStyle = (playerPos[2] == '1') ? '#8B4513' : '#2b2b2b';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+
+            // Door Frame
+            ctx.fillStyle = '#654321';
+            ctx.fillRect(drawX + 4, drawY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+            // Knob
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(drawX + TILE_SIZE - 10, drawY + TILE_SIZE / 2, 4, 4);
+        } else if (tileType === 'anvil') {
+            // Wood floor bg
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Anvil Base
+            ctx.fillStyle = '#2F4F4F';
+            ctx.fillRect(drawX + 8, drawY + 10, 16, 16);
+            // Anvil Top
+            ctx.fillStyle = '#708090';
+            ctx.fillRect(drawX + 4, drawY + 8, 24, 8);
+        } else if (tileType === 'shelf') {
+            // Wood floor bg
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Shelf
+            ctx.fillStyle = '#DEB887'; // Burlywood
+            ctx.fillRect(drawX + 2, drawY + 4, 28, 6);
+            ctx.fillRect(drawX + 2, drawY + 14, 28, 6);
+            ctx.fillRect(drawX + 2, drawY + 24, 28, 6);
+        } else {
+            // Unknown
+            ctx.fillStyle = '#000';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+        }
+
+        // LOS / Lighting Overlay
+        const dist = Math.sqrt(Math.pow(worldX - playerPos[0], 2) + Math.pow(worldY - playerPos[1], 2));
+        if (dist > 5) {
+            ctx.fillStyle = `rgba(0, 0, 0, ${Math.min((dist - 5) * 0.2, 0.9)})`;
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
         }
     }
+
 
     // Draw Corpses
     corpses.forEach(corpse => {
@@ -132,9 +196,24 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
             const drawX = centerX + (nx - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
             const drawY = centerY + (ny - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
 
-            // Draw NPC (Cyan Box fallback or Image)
-            ctx.fillStyle = '#00ffff';
-            ctx.fillRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+            // Draw NPC
+            if (npc.asset) {
+                if (!spriteCache[npc.asset]) {
+                    const img = new Image();
+                    img.src = "/static/img/" + npc.asset;
+                    spriteCache[npc.asset] = img;
+                }
+                const img = spriteCache[npc.asset];
+                if (img.complete && img.naturalHeight !== 0) {
+                    ctx.drawImage(img, drawX, drawY, TILE_SIZE, TILE_SIZE);
+                } else {
+                    ctx.fillStyle = '#00ffff';
+                    ctx.fillRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                }
+            } else {
+                ctx.fillStyle = '#00ffff';
+                ctx.fillRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+            }
 
             // Name tag
             ctx.fillStyle = 'white';
@@ -168,6 +247,46 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     const pDrawY = centerY + (playerPos[1] - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
     if (playerImg.complete) ctx.drawImage(playerImg, pDrawX, pDrawY, TILE_SIZE, TILE_SIZE);
     else { ctx.fillStyle = 'green'; ctx.fillRect(pDrawX, pDrawY, TILE_SIZE, TILE_SIZE); }
+    // --- DEBUG OVERLAY (Disabled) ---
+    // ctx.font = '12px monospace';
+    // ctx.fillStyle = '#ffff00';
+    // ctx.textAlign = 'left';
+    // ctx.fillText(`Player: ${playerPos[0]}, ${playerPos[1]}, ${playerPos[2]}`, 10, 20);
+    // ctx.fillText(`Camera: ${cameraPos[0]}, ${cameraPos[1]}`, 10, 35);
+    // ctx.fillText(`Processing: ${isProcessingMove}`, 10, 50);
+}
+
+// --- Tab Logic ---
+window.switchTab = function (tabName) {
+    // Hide all contents for Interaction Panel
+    const interactionPanel = document.getElementById('interaction-panel');
+    interactionPanel.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    interactionPanel.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+    // Show Selected
+    document.getElementById(tabName + '-tab').classList.add('active');
+
+    // Highlight Button (Simple search)
+    const buttons = interactionPanel.querySelectorAll('.tab-btn');
+    if (tabName === 'nearby') buttons[0].classList.add('active');
+    if (tabName === 'items') buttons[1].classList.add('active');
+    if (tabName === 'quest') buttons[2].classList.add('active');
+}
+
+window.switchCharTab = function (tabName) {
+    // Hide all contents for Character Panel
+    const charPanel = document.getElementById('char-sheet');
+    charPanel.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    charPanel.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+    // Show Selected
+    document.getElementById(tabName + '-char-tab').classList.add('active');
+
+    // Highlight Button
+    const buttons = charPanel.querySelectorAll('.tab-btn');
+    if (tabName === 'hero') buttons[0].classList.add('active');
+    if (tabName === 'equipment') buttons[1].classList.add('active');
+    if (tabName === 'skills') buttons[2].classList.add('active');
 }
 
 function logMessage(msg) {
@@ -177,12 +296,7 @@ function logMessage(msg) {
     log.scrollTop = log.scrollHeight;
 }
 
-async function fetchNarrative() {
-    logMessage("...");
-    const response = await fetch('/api/narrative');
-    const data = await response.json();
-    logMessage(data.narrative);
-}
+// ... (fetchNarrative skipped)
 
 async function fetchState() {
     const response = await fetch(`/api/state?t=${new Date().getTime()}`);
@@ -196,21 +310,19 @@ async function fetchState() {
         npcs: rawData.world.npcs, // Add NPCs
         corpses: rawData.corpses,
         combat: rawData.combat,
-        stats: rawData.player.stats
+        stats: rawData.player.stats,
+        inventory: rawData.player.inventory // New Inventory Data
     };
 
     viewportData = data;
 
     // DEBUG LOG
-    console.log("State Fetched:", data);
-    console.log("Map Keys:", Object.keys(data.map).length);
-    console.log("Player Pos:", data.position);
+    // console.log("State Fetched:", data);
 
     drawMap(data.position, data.map, data.enemies, data.corpses, data.npcs);
 
     // UI Updates
     if (data.combat && data.combat.active) {
-        console.log("Combat Mode Active!");
         document.getElementById('controls').style.display = 'none';
         document.getElementById('combat-controls').style.display = 'block';
     } else {
@@ -226,316 +338,495 @@ async function fetchState() {
     if (stats.wis) document.getElementById('stat-wis').textContent = stats.wis;
     if (stats.cha) document.getElementById('stat-cha').textContent = stats.cha;
 
+    // --- POPULATE TABS ---
+
+    // 1. NEARBY TAB
     const nearbyList = document.getElementById('nearby-list');
     nearbyList.innerHTML = '';
     let foundSomething = false;
-    const [px, py, pz] = data.position;
 
-    if (data.corpses) {
-        data.corpses.forEach((corpse, index) => {
-            const [cx, cy, cz] = corpse.xyz;
-            const dist = Math.max(Math.abs(cx - px), Math.abs(cy - py));
-            if (dist <= 1) {
+    // Combat Priority
+    if (data.combat && data.combat.active) {
+        foundSomething = true;
+        const enemyName = data.combat.enemy_name || "Unknown Enemy";
+        const enemyHp = data.combat.enemy_hp;
+
+        const div = document.createElement('div');
+        div.className = 'interaction-item';
+        div.style.borderColor = '#ff0000';
+        div.innerHTML = `
+            <div style="color: #ff4444; font-weight: bold; text-transform: uppercase;">COMBAT ACTIVE</div>
+            <div style="font-size: 1.1em; color: white;">${enemyName}</div>
+            <div style="margin: 5px 0; color: #aaa;">
+                HP: <span style="color: #f00;">${enemyHp}</span>
+            </div>
+            <div style="font-size: 0.9em; font-style: italic; color: #666;">
+                Threat: High
+            </div>
+         `;
+        nearbyList.appendChild(div);
+
+        switchTab('nearby'); // Force switch to nearby on combat
+    } else {
+        const [px, py, pz] = data.position;
+
+        // Corpses
+        if (data.corpses) {
+            data.corpses.forEach((corpse, index) => {
+                const [cx, cy, cz] = corpse.xyz;
+                const dist = Math.max(Math.abs(cx - px), Math.abs(cy - py));
+                if (dist <= 1) {
+                    foundSomething = true;
+                    const div = document.createElement('div');
+                    div.className = 'interaction-item';
+                    div.innerHTML = `
+                        <div style="color: #ccc; font-weight: bold;">Pile of Bones</div>
+                        <div class="interaction-actions">
+                            <button onclick="interact('inspect', 'corpse', ${index})">Inspect</button>
+                            <button onclick="interact('loot', 'corpse', ${index})">Bag</button>
+                        </div>
+                     `;
+                    nearbyList.appendChild(div);
+                }
+            });
+        }
+
+        // NPCs
+        if (data.npcs) {
+            data.npcs.forEach((npc, index) => {
+                const [nx, ny, nz] = npc.xyz;
+                const dist = Math.max(Math.abs(nx - px), Math.abs(ny - py));
+                if (dist <= 1) {
+                    foundSomething = true;
+                    const div = document.createElement('div');
+                    div.className = 'interaction-item';
+                    div.innerHTML = `
+                        <div style="color: #00ffff; font-weight: bold;">${npc.name}</div>
+                        <div class="interaction-actions">
+                            <button onclick="interact('talk', 'npc', ${npc.id})">Talk</button>
+                        </div>
+                     `;
+                    nearbyList.appendChild(div);
+                }
+            });
+        }
+
+        // Secrets
+        if (data.map && data.world && data.world.secrets) {
+            data.world.secrets.forEach(secret => {
                 foundSomething = true;
                 const div = document.createElement('div');
                 div.className = 'interaction-item';
                 div.innerHTML = `
-                    <div style="color: #ccc; font-weight: bold;">Pile of Bones</div>
-                    <div class="interaction-actions">
-                        <button onclick="interact('inspect', 'corpse', ${index})">Inspect</button>
-                        <button onclick="interact('loot', 'corpse', ${index})">Bag</button>
-                    </div>
-                 `;
+                     <div style="color: #ffd700; font-weight: bold;">${secret.name}</div>
+                     <div class="interaction-actions">
+                         <button onclick="interact('inspect', 'secret', '${secret.id}')">Inspect</button>
+                     </div>
+                  `;
                 nearbyList.appendChild(div);
+            });
+        }
+
+        if (!foundSomething) {
+            nearbyList.innerHTML = '<p style="color: #666; font-style: italic;">Nothing of interest nearby.</p>';
+        }
+    }
+
+    // 2. ITEMS TAB
+    const itemsList = document.getElementById('items-list');
+    itemsList.innerHTML = '';
+    if (data.inventory && data.inventory.length > 0) {
+        data.inventory.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'interaction-item';
+            div.innerHTML = `
+                <div style="color: #eee; font-weight: bold;">${item[0]}</div>
+                <div style="font-size: 0.8em; color: #888;">Slot: ${item[1]}</div>
+            `;
+            itemsList.appendChild(div);
+        });
+    } else {
+        itemsList.innerHTML = '<p style="color: #666; font-style: italic;">Your bag is empty.</p>';
+    }
+
+    // 3. QUESTS TAB (Mockup/Inferred)
+    const questList = document.getElementById('quest-list');
+    questList.innerHTML = '';
+    let questCount = 0;
+
+    // We infer quests from NPC presence. If we are in the dungeon (Z=0) and NPCs are there, we have a quest to save them.
+    if (data.npcs) {
+        data.npcs.forEach(npc => {
+            // Very simple heuristic: If they are in the dungeon (which implies Z=0 usually), they need saving.
+            // But we only get "nearby" NPCs or "on level" NPCs.
+            // Better: We should expose a 'quest_log' in the API state.
+            // For now, if we see them, we list them.
+            if (npc.xyz[2] === 0 && npc.name !== "Dungeon Warden") {
+                const div = document.createElement('div');
+                div.className = 'interaction-item';
+                div.innerHTML = `
+                    <div style="color: #ffa500; font-weight: bold;">Rescue ${npc.name}</div>
+                    <div style="font-size: 0.9em; color: #aaa;">They are trapped in the dungeon.</div>
+                `;
+                questList.appendChild(div);
+                questCount++;
             }
         });
     }
 
-    if (!foundSomething) {
-        nearbyList.innerHTML = '<p style="color: #666; font-style: italic;">Nothing of interest...</p>';
+    if (questCount === 0) {
+        questList.innerHTML = '<p style="color: #666; font-style: italic;">No active quests tracked.</p>';
     }
 }
 
 async function interact(action, type, id) {
-    if (action === 'inspect') {
-        logMessage("You see a pile of bleached bones. It seems to be a human skeleton.");
-    } else if (action === 'loot') {
-        logMessage("You rummage through the bones... found a rusty dagger! (Added to inventory)");
+    if (action === 'talk' && type === 'npc') {
+        // Open Chat Interface
+        // We need to fetch the name. Usually the id matches the index in data.npcs
+        // Ideally we pass name, but layout is simpler:
+        // Let's assume the NPC name is what we claimed in the button generation.
+        // We'll just pass the ID and let backend identify.
+        // But for UI title, we might want to grab it.
+        const name = "NPC"; // Placeholder, backend provides real name context
+        openChat(name, id);
+        return;
+    }
+
+    // Call API for real interaction (Loot/Inspect)
+    try {
+        const response = await fetch('/api/interact', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, type: type, id: id })
+        });
+        const data = await response.json();
+        if (data.narrative) logMessage(data.narrative);
+        fetchState();
+    } catch (e) {
+        console.error("Interaction failed:", e);
     }
 }
 
-function changeZoom(delta) {
-    TILE_SIZE += delta;
-    if (TILE_SIZE < 10) TILE_SIZE = 10;
-    if (TILE_SIZE > 100) TILE_SIZE = 100;
-    if (viewportData) {
-        drawMap(viewportData.position, viewportData.map, viewportData.enemies, viewportData.corpses);
-    }
-}
+// --- Chat System ---
+let activeChatNPCId = null;
 
-function toggleMap() {
-    const modal = document.getElementById('map-modal');
-    if (modal.style.display === 'none') {
-        modal.style.display = 'flex';
-        if (viewportData) {
-            drawFullMap(viewportData.position, viewportData.map);
-        }
-    } else {
-        modal.style.display = 'none';
-    }
-}
+async function openChat(name, id) {
+    activeChatNPCId = id;
+    document.getElementById('chat-modal').style.display = 'flex';
+    const hist = document.getElementById('chat-history');
+    hist.innerHTML = '<div class="chat-message npc">System: Loading History...</div>';
+    document.getElementById('chat-input').focus();
 
-function drawFullMap(playerPos, visibleMap) {
-    const fCanvas = document.getElementById('full-map-canvas');
-    const fCtx = fCanvas.getContext('2d');
-    fCtx.clearRect(0, 0, fCanvas.width, fCanvas.height);
+    // Fetch History
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ npc_index: id, message: "__INIT__" })
+        });
+        const data = await response.json();
 
-    let minX = playerPos[0], maxX = playerPos[0];
-    let minY = playerPos[1], maxY = playerPos[1];
-    const keys = Object.keys(visibleMap);
-    if (keys.length === 0) return;
+        hist.innerHTML = ''; // Clear loading
 
-    keys.forEach(key => {
-        const [x, y, z] = key.split(',').map(Number);
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-    });
+        if (data.reply && data.reply !== "...") {
+            const lines = data.reply.split('\n\n');
+            lines.forEach(line => {
+                if (!line.trim()) return;
+                const div = document.createElement('div');
 
-    minX -= 2; maxX += 2;
-    minY -= 2; maxY += 2;
-
-    const mapWidth = maxX - minX + 1;
-    const mapHeight = maxY - minY + 1;
-    const scaleX = fCanvas.width / mapWidth;
-    const scaleY = fCanvas.height / mapHeight;
-    const scale = Math.min(scaleX, scaleY, 40);
-
-    const offsetX = (fCanvas.width - mapWidth * scale) / 2;
-    const offsetY = (fCanvas.height - mapHeight * scale) / 2;
-
-    keys.forEach(key => {
-        const [x, y, z] = key.split(',').map(Number);
-        if (visibleMap[key]) {
-            const drawX = offsetX + (x - minX) * scale;
-            const drawY = offsetY + (y - minY) * scale;
-            if (visibleMap[key] === 'floor') fCtx.fillStyle = '#444';
-            else if (visibleMap[key] === 'wall') fCtx.fillStyle = '#8B4513';
-            else fCtx.fillStyle = '#220022';
-            fCtx.fillRect(drawX, drawY, scale, scale);
-        }
-    });
-
-    const pdX = offsetX + (playerPos[0] - minX) * scale;
-    const pdY = offsetY + (playerPos[1] - minY) * scale;
-    fCtx.fillStyle = '#00ff00';
-    fCtx.fillRect(pdX, pdY, scale, scale);
-}
-
-async function combatAction(action) {
-    const response = await fetch('/api/combat/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: action })
-    });
-    const data = await response.json();
-    logMessage(data.narrative);
-    fetchState();
-}
-
-async function resetGame() {
-    if (!confirm("Are you sure you want to reset the world? All progress will be lost.")) return;
-    await fetch('/api/debug/reset', { method: 'POST' });
-    window.location.reload();
-}
-
-async function move(direction) {
-    const response = await fetch('/api/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ direction: direction })
-    });
-    const data = await response.json();
-    if (data.narrative) logMessage(data.narrative);
-    else fetchNarrative();
-    fetchState();
-}
-
-let cameraPos = null;
-
-function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
-    if (!visibleMap) visibleMap = {};
-    if (!enemies) enemies = [];
-    if (!corpses) corpses = [];
-    if (!npcs) npcs = [];
-
-    if (!cameraPos) cameraPos = [...playerPos];
-
-    // Camera Logic
-    const BOUNDARY_X = 3;
-    const BOUNDARY_Y = 2;
-
-    let dx = playerPos[0] - cameraPos[0];
-    let dy = playerPos[1] - cameraPos[1];
-
-    if (dx > BOUNDARY_X) cameraPos[0] += (dx - BOUNDARY_X);
-    if (dx < -BOUNDARY_X) cameraPos[0] += (dx + BOUNDARY_X);
-    if (dy > BOUNDARY_Y) cameraPos[1] += (dy - BOUNDARY_Y);
-    if (dy < -BOUNDARY_Y) cameraPos[1] += (dy + BOUNDARY_Y);
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-
-    const DRAW_RADIUS_X = Math.ceil(canvas.width / (2 * TILE_SIZE)) + 2;
-    const DRAW_RADIUS_Y = Math.ceil(canvas.height / (2 * TILE_SIZE)) + 2;
-
-    for (let x = -DRAW_RADIUS_X; x <= DRAW_RADIUS_X; x++) {
-        for (let y = -DRAW_RADIUS_Y; y <= DRAW_RADIUS_Y; y++) {
-            const worldX = Math.floor(cameraPos[0] + x);
-            const worldY = Math.floor(cameraPos[1] + y);
-            const worldZ = cameraPos[2];
-
-            const screenOffsetX = (worldX - cameraPos[0]) * TILE_SIZE;
-            const screenOffsetY = (worldY - cameraPos[1]) * TILE_SIZE;
-
-            const drawX = centerX + screenOffsetX - (TILE_SIZE / 2);
-            const drawY = centerY + screenOffsetY - (TILE_SIZE / 2);
-
-            // Bounds check for styling
-            // ctx.strokeStyle = '#333';
-            // ctx.lineWidth = 1;
-            // ctx.strokeRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-
-            const tileKey = `${worldX},${worldY},${worldZ}`;
-            const tileType = visibleMap[tileKey];
-
-            if (tileType) {
-                if (tileType === 'floor') {
-                    if (floorImg.complete && floorImg.naturalHeight !== 0) ctx.drawImage(floorImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    else {
-                        ctx.fillStyle = '#ff00ff'; // DEBUG PINK
-                        ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    }
-                } else if (tileType === 'wall') {
-                    // Force fallback to debug image issues
-                    // if (wallImg.complete && wallImg.naturalHeight !== 0) ctx.drawImage(wallImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    // else { 
-                    ctx.fillStyle = '#654321'; // Dark Brown
-                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    ctx.strokeStyle = '#DAA520';
-                    ctx.strokeRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                    // }
+                if (line.startsWith("Player:")) {
+                    div.className = 'chat-message user';
+                    div.textContent = line.replace("Player:", "").trim();
                 } else {
-                    ctx.fillStyle = '#444';
-                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                }
+                    div.className = 'chat-message npc';
+                    // Try to remove "Elara:" prefix if present for cleaner UI
+                    const namePrefix = data.npc_name + ":";
+                    if (line.startsWith(namePrefix)) {
+                        div.textContent = line.replace(namePrefix, "").trim();
+                    } else {
+                        div.textContent = line;
+                        document.getElementById('chat-npc-name').innerText = npcName;
+                        document.getElementById('chat-history').innerHTML = '';
 
-                // Lighting
-                const dist = Math.sqrt(Math.pow(worldX - playerPos[0], 2) + Math.pow(worldY - playerPos[1], 2));
-                if (dist > 3.5) { // Increased visibility for testing
-                    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-                }
-            } else {
-                // Draw grid for void to verify canvas is working
-                ctx.strokeStyle = '#222';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-            }
-        }
-    }
+                        // Set Portrait
+                        const portraitDiv = document.getElementById('chat-portrait');
+                        let imgUrl = 'static/img/player.png'; // Default/Fallback
 
-    // Draw Corpses relative to CAMERA
-    corpses.forEach(corpse => {
-        const [cx, cy, cz] = corpse.xyz;
+                        // Simple mapping (Case insensitive check)
+                        const lowerName = npcName.toLowerCase();
+                        if (lowerName.includes('elara')) imgUrl = 'static/img/Sorceress.jpg';
+                        else if (lowerName.includes('gareth')) imgUrl = 'static/img/Warrior.jpg';
+                        else if (lowerName.includes('skeleton')) imgUrl = 'static/img/skeleton.png';
+                        else if (lowerName.includes('troll')) imgUrl = 'static/img/bones.png'; // Fallback for monsters
 
-        const screenOffsetX = (cx - cameraPos[0]) * TILE_SIZE;
-        const screenOffsetY = (cy - cameraPos[1]) * TILE_SIZE;
+                        portraitDiv.style.backgroundImage = `url('${imgUrl}')`;
 
-        if (Math.abs(cx - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(cy - cameraPos[1]) <= DRAW_RADIUS_Y) {
-            const drawX = centerX + screenOffsetX - (TILE_SIZE / 2);
-            const drawY = centerY + screenOffsetY - (TILE_SIZE / 2);
+                        // Initial greeting trigger via backend? 
+                        // Usually backend sends greeting upon 'interact' or bumping. 
+                        // If we just opened chat via button, we might want to fetch history.
+                        document.getElementById('chat-input').focus(); // Focus input when chat opens
+                    }
 
-            if (bonesImg.complete && bonesImg.naturalHeight !== 0) {
-                ctx.drawImage(bonesImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-            } else {
-                ctx.fillStyle = '#ccc';
-                ctx.fillRect(drawX + 15, drawY + 15, 10, 10);
-            }
-        }
-    });
+                    function closeChat() {
+                        activeChatNPCId = null;
+                        document.getElementById('chat-modal').style.display = 'none';
+                    }
 
-    // Draw NPCs
-    npcs.forEach(npc => {
-        const [nx, ny, nz] = npc.xyz;
-        const screenOffsetX = (nx - cameraPos[0]) * TILE_SIZE;
-        const screenOffsetY = (ny - cameraPos[1]) * TILE_SIZE;
+                    function handleChatKey(e) {
+                        if (e.key === 'Enter') sendChatMessage();
+                    }
 
-        if (Math.abs(nx - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(ny - cameraPos[1]) <= DRAW_RADIUS_Y) {
-            const drawX = centerX + screenOffsetX - (TILE_SIZE / 2);
-            const drawY = centerY + screenOffsetY - (TILE_SIZE / 2);
+                    async function sendChatMessage(msgOverride) {
+                        const input = document.getElementById('chat-input');
+                        const msg = msgOverride || input.value.trim();
+                        if (!msg) return;
 
-            // Placeholder for NPC
-            ctx.fillStyle = '#00ffff'; // Cyan
-            ctx.fillRect(drawX + 5, drawY + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                        // Append User Msg
+                        const hist = document.getElementById('chat-history');
+                        const userDiv = document.createElement('div');
+                        userDiv.className = 'chat-message user';
+                        userDiv.textContent = msg;
+                        hist.appendChild(userDiv);
 
-            // Name tag
-            ctx.fillStyle = 'white';
-            ctx.font = '10px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(npc.name, drawX + TILE_SIZE / 2, drawY - 2);
-        }
-    });
+                        if (!msgOverride) input.value = '';
+                        hist.scrollTop = hist.scrollHeight;
 
-    // Draw Enemies relative to CAMERA
-    enemies.forEach(enemy => {
-        const [ex, ey, ez] = enemy.xyz;
+                        // Send to Backend
+                        try {
+                            const response = await fetch('/api/chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ npc_index: activeChatNPCId, message: msg })
+                            });
+                            const data = await response.json();
 
-        const screenOffsetX = (ex - cameraPos[0]) * TILE_SIZE;
-        const screenOffsetY = (ey - cameraPos[1]) * TILE_SIZE;
+                            // Append NPC Response
+                            if (data.reply) {
+                                const npcDiv = document.createElement('div');
+                                npcDiv.className = 'chat-message npc';
+                                npcDiv.textContent = data.reply;
+                                hist.appendChild(npcDiv);
+                                hist.scrollTop = hist.scrollHeight;
 
-        if (Math.abs(ex - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(ey - cameraPos[1]) <= DRAW_RADIUS_Y) {
-            const drawX = centerX + screenOffsetX - (TILE_SIZE / 2);
-            const drawY = centerY + screenOffsetY - (TILE_SIZE / 2);
+                                // Update modal title if provided
+                                if (data.npc_name) {
+                                    document.getElementById('chat-npc-name').textContent = "Conversing with " + data.npc_name;
+                                }
 
-            if (skeletonImg.complete && skeletonImg.naturalHeight !== 0) {
-                ctx.drawImage(skeletonImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-            } else {
-                ctx.fillStyle = 'red';
-                ctx.fillRect(drawX + 10, drawY + 10, 20, 20);
-            }
+                                fetchState(); // Refresh map (e.g. Secret Doors)
+                            }
+                        } catch (e) {
+                            console.error("Chat Error:", e);
+                        }
+                    }
 
-            // Draw HP bar
-            const hpPct = enemy.hp / enemy.max_hp;
-            ctx.fillStyle = 'red';
-            ctx.fillRect(drawX, drawY - 5, TILE_SIZE, 4);
-            ctx.fillStyle = 'green';
-            ctx.fillRect(drawX, drawY - 5, TILE_SIZE * hpPct, 4);
-        }
-    });
-    const pScreenOffsetX = (playerPos[0] - cameraPos[0]) * TILE_SIZE;
-    const pScreenOffsetY = (playerPos[1] - cameraPos[1]) * TILE_SIZE;
-    const pDrawX = centerX + pScreenOffsetX - (TILE_SIZE / 2);
-    const pDrawY = centerY + pScreenOffsetY - (TILE_SIZE / 2);
+                    function changeZoom(delta) {
+                        TILE_SIZE += delta;
+                        if (TILE_SIZE < 10) TILE_SIZE = 10;
+                        if (TILE_SIZE > 100) TILE_SIZE = 100;
+                        if (viewportData) {
+                            drawMap(viewportData.position, viewportData.map, viewportData.enemies, viewportData.corpses);
+                        }
+                    }
 
-    if (playerImg.complete && playerImg.naturalHeight !== 0) {
-        ctx.drawImage(playerImg, pDrawX, pDrawY, TILE_SIZE, TILE_SIZE);
-    } else {
-        ctx.fillStyle = '#00ff00';
-        ctx.fillRect(pDrawX + 10, pDrawY + 10, 20, 20);
-    }
-}
+                    function toggleMap() {
+                        const modal = document.getElementById('map-modal');
+                        if (modal.style.display === 'none') {
+                            modal.style.display = 'flex';
+                            if (viewportData) {
+                                drawFullMap(viewportData.position, viewportData.map);
+                            }
+                        } else {
+                            modal.style.display = 'none';
+                        }
+                    }
 
-fetchState().then(async () => {
-    fetchNarrative();
-});
+                    function drawFullMap(playerPos, visibleMap) {
+                        const fCanvas = document.getElementById('full-map-canvas');
+                        const fCtx = fCanvas.getContext('2d');
+                        fCtx.clearRect(0, 0, fCanvas.width, fCanvas.height);
 
-document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowUp' || e.key === 'w') move('north');
-    if (e.key === 'ArrowDown' || e.key === 's') move('south');
-    if (e.key === 'ArrowLeft' || e.key === 'a') move('west');
-    if (e.key === 'ArrowRight' || e.key === 'd') move('east');
-});
+                        let minX = playerPos[0], maxX = playerPos[0];
+                        let minY = playerPos[1], maxY = playerPos[1];
+                        const keys = Object.keys(visibleMap);
+                        if (keys.length === 0) return;
+
+                        keys.forEach(key => {
+                            const [x, y, z] = key.split(',').map(Number);
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                        });
+
+                        minX -= 2; maxX += 2;
+                        minY -= 2; maxY += 2;
+
+                        const mapWidth = maxX - minX + 1;
+                        const mapHeight = maxY - minY + 1;
+                        const scaleX = fCanvas.width / mapWidth;
+                        const scaleY = fCanvas.height / mapHeight;
+                        const scale = Math.min(scaleX, scaleY, 40);
+
+                        const offsetX = (fCanvas.width - mapWidth * scale) / 2;
+                        const offsetY = (fCanvas.height - mapHeight * scale) / 2;
+
+                        keys.forEach(key => {
+                            const [x, y, z] = key.split(',').map(Number);
+                            if (visibleMap[key]) {
+                                const drawX = offsetX + (x - minX) * scale;
+                                const drawY = offsetY + (y - minY) * scale;
+                                if (visibleMap[key] === 'floor') fCtx.fillStyle = '#444';
+                                else if (visibleMap[key] === 'wall') fCtx.fillStyle = '#8B4513';
+                                else fCtx.fillStyle = '#220022';
+                                fCtx.fillRect(drawX, drawY, scale, scale);
+                            }
+                        });
+
+                        const pdX = offsetX + (playerPos[0] - minX) * scale;
+                        const pdY = offsetY + (playerPos[1] - minY) * scale;
+                        fCtx.fillStyle = '#00ff00';
+                        fCtx.fillRect(pdX, pdY, scale, scale);
+                    }
+
+                    async function combatAction(action) {
+                        const response = await fetch('/api/combat/action', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: action })
+                        });
+                        const data = await response.json();
+                        logMessage(data.narrative);
+                        fetchState();
+                    }
+
+                    async function resetGame() {
+                        if (!confirm("Are you sure you want to reset the world? All progress will be lost.")) return;
+                        await fetch('/api/debug/reset', { method: 'POST' });
+                        window.location.reload();
+                    }
+
+                    let isProcessingMove = false;
+
+                    async function move(direction) {
+                        if (isProcessingMove) {
+                            console.log("Skipping move: Busy");
+                            return;
+                        }
+                        isProcessingMove = true;
+
+                        // Safety release: Auto-reset flag after 120ms
+                        setTimeout(() => { isProcessingMove = false; }, 120);
+
+                        try {
+                            const response = await fetch('/api/move', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ direction: direction })
+                            });
+                            const data = await response.json();
+                            // console.log("Move Narrative:", data.narrative); 
+                            if (data.narrative) logMessage(data.narrative);
+                            else fetchNarrative();
+                            await fetchState();
+                        } catch (e) {
+                            console.error("Move Error:", e);
+                        } finally {
+                            isProcessingMove = false;
+                        }
+                    }
+
+                    let cameraPos = null;
+
+                    // Duplicate drawMap removed.
+
+                    fetchState().then(async () => {
+                        fetchNarrative();
+                    });
+
+                    document.addEventListener('keydown', (e) => {
+                        // Debug why movement might fail
+                        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "w", "a", "s", "d"].includes(e.key)) {
+                            // Allow typing in Chat Input
+                            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+                            e.preventDefault(); // LOCK SCROLL for all move keys
+
+                            if (activeChatNPCId !== null) {
+                                console.warn("Movement blocked: Chat is open. activeChatNPCId:", activeChatNPCId);
+                                return;
+                            }
+
+                            if (isProcessingMove) {
+                                console.warn("Movement blocked: Still processing previous move.");
+                                return;
+                            }
+
+                            if (e.key === 'ArrowUp' || e.key === 'w') move('north');
+                            if (e.key === 'ArrowDown' || e.key === 's') move('south');
+                            if (e.key === 'ArrowLeft' || e.key === 'a') move('west');
+                            if (e.key === 'ArrowRight' || e.key === 'd') move('east');
+                        }
+                    });
+
+                    // Intro Message
+                    setTimeout(() => {
+                        logMessage("You awake with a throbbing headache, the cold stone floor pressing against your cheek. The air smells of damp earth and old iron. You are disoriented, alone, and trapped in the depths of an unknown dungeon...");
+                    }, 500);
+
+                    async function useSkill(skillName) {
+                        if (skillName === 'investigate') {
+                            logMessage("Investigating surroundings...");
+                            try {
+                                const response = await fetch('/api/action/investigate', { method: 'POST' });
+                                const data = await response.json();
+
+                                if (data.narrative) logMessage(data.narrative);
+
+                                // Populate Nearby Tab
+                                if (data.entities && data.entities.length > 0) {
+                                    const nearbyList = document.getElementById('state-list'); // ID is technically nearby-list but logic uses ID state-list in HTML? 
+                                    // Wait, main HTML has `id="nearby-list"` inside `nearby-tab`.
+                                    // Let's target strictly.
+                                    const listEl = document.getElementById('nearby-list');
+                                    if (listEl) {
+                                        listEl.innerHTML = ''; // Clear "Nothing of interest"
+                                        // Sort by distance
+                                        data.entities.sort((a, b) => a.dist - b.dist);
+
+                                        data.entities.forEach(ent => {
+                                            const div = document.createElement('div');
+                                            div.className = 'item-entry';
+                                            div.innerHTML = `
+                             <strong>${ent.name}</strong> (${ent.dist}m)<br>
+                             <span style="font-size:0.8em; color:#aaa;">${ent.status}</span>
+                         `;
+                                            listEl.appendChild(div);
+                                        });
+                                        // Auto-switch to Nearby tab
+                                        switchTab('nearby');
+                                    }
+                                } else {
+                                    logMessage("You find nothing new nearby.");
+                                }
+
+                            } catch (e) {
+                                console.error(e);
+                                logMessage("Failed to investigate.");
+                            }
+                        }
+                    }
+                } // End useSkill
+
+            }); // End Wrapper (Implicit)
+
+            // Expose functions to global scope for HTML onclick access
+            window.openChat = openChat;
+            window.closeChat = closeChat;
+            window.sendChat = sendChat;
+            window.useSkill = useSkill;
+            // window.interact is tricky if interact logic was inside wrapper. Assuming interact is defined.
+            // If interact is missing, we will have another error, but blank screen will be fixed.
+            try { window.interact = interact; } catch (e) { }
+            try { window.toggleMap = toggleMap; } catch (e) { }
+            try { window.resetGame = resetGame; } catch (e) { }
