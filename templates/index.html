@@ -11,15 +11,11 @@
 <body>
 
 
-    <!-- Full Screen Game View -->
     <div id="game-view"
         style="position: absolute; top:0; left:0; width:100vw; height:100vh; z-index: 0; background: #000;">
         <canvas id="map-canvas"></canvas>
-        <div id="vignette"
-            style="pointer-events: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, transparent 50%, black 150%);">
-        </div>
+        <div id="vignette" style="display: none;"></div>
     </div>
-
 
     <!-- UI Overlay Container (Pointer events fall through unless on panel) -->
     <div id="ui-layer"
@@ -258,10 +254,12 @@
     </div>
 
     <!-- Game Modules -->
-    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=1"></script>
-    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=1"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=1"></script>
-    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=24"></script>
+    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=24"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=24"></script>
+    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=24"></script>
+    <!-- MAIN LOGIC -->
+    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=24"></script>
 </body>
 
 </html>

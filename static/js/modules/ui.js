@@ -1,5 +1,4 @@
 
-
 // Chat & UI Interaction Logic
 
 function updateHeader(z) {
@@ -507,6 +506,8 @@ async function combatAction(actionType) {
     }
 }
 
+
+
 async function playCombatEvents(events) {
     for (const evt of events) {
         if (evt.type === 'text') {
@@ -514,12 +515,13 @@ async function playCombatEvents(events) {
             await new Promise(r => setTimeout(r, 800)); // Read time
 
         } else if (evt.type === 'anim') {
-            // TODO: Trigger actual sprite animation in graphics.js
-            // For now, visual shake or flash
+            // Trigger Audio based on actor
             if (evt.actor === 'player') {
+                audioSystem.play('attack');
                 document.body.style.boxShadow = "inset 0 0 50px white";
                 setTimeout(() => document.body.style.boxShadow = "none", 100);
             } else if (evt.actor === 'enemy') {
+                audioSystem.play('hit');
                 document.body.style.boxShadow = "inset 0 0 50px red";
                 setTimeout(() => document.body.style.boxShadow = "none", 100);
             }
@@ -536,7 +538,10 @@ async function playCombatEvents(events) {
             // Check for specific keywords to determine color if not explicit
             let color = "rgba(0, 0, 0, 0.8)"; // Default Black
             if (evt.title && (evt.title.includes("HIT") || evt.title.includes("DAMAGE"))) color = "rgba(150, 0, 0, 0.9)"; // Red
-            if (evt.title && (evt.title.includes("VICTORY") || evt.title.includes("Player"))) color = "rgba(0, 150, 0, 0.9)"; // Green
+            if (evt.title && (evt.title.includes("VICTORY") || evt.title.includes("Player"))) {
+                color = "rgba(0, 150, 0, 0.9)"; // Green
+                audioSystem.play('coin'); // Victory Fanfare substitute
+            }
             if (evt.title && (evt.title.includes("MISS"))) color = "rgba(100, 100, 0, 0.9)"; // Yellow/Gold
 
             // Allow override
@@ -772,6 +777,9 @@ window.equipItem = async function (id) {
             body: JSON.stringify({ item_id: id })
         });
         const data = await res.json();
+
+        audioSystem.play('equip');
+
         // State update happens in main loop usually, but we can force it
         // Or await next fetchState
         window.fetchState(); // from main.js (global)
@@ -786,6 +794,7 @@ window.unequipItem = async function (id) {
             body: JSON.stringify({ item_id: id })
         });
         const data = await res.json();
+        audioSystem.play('equip');
         window.fetchState();
     } catch (e) { console.error(e); }
 };
@@ -868,6 +877,7 @@ window.buyItem = async function (templateId, cost) {
         });
         const data = await res.json();
         alert(data.message);
+        audioSystem.play('coin');
 
         // Refresh State (Gold update)
         await window.fetchState();
@@ -880,6 +890,7 @@ window.buyItem = async function (templateId, cost) {
 
 // --- Tab Switching ---
 window.switchCharTab = function (tabName) {
+    audioSystem.play('page');
     // Buttons
     document.querySelectorAll('#char-sheet .tab-btn').forEach(b => b.classList.remove('active'));
     // Content

@@ -16,16 +16,15 @@ The core hook is the "Agentic DM" - an AI (Ollama/Gemini) that generates dynamic
     - `ui.js`: React-less UI updates (Inventory, Stats, Chat). [Completed]
     - `main.js`: Input handling, state polling. [Completed]
 
-## 3. Recently Completed (v0.5)
+## 3. Recently Completed (v0.6)
+- **Engine Fix**: Rewrite of Rendering Engine (graphics.js) to fix blank screen issues.
+- **Visuals**: Restore Fog of War, Zoom support, and separate texture assets.
 - **Refactoring**: Split `dm.py` into modular systems (`inventory_system.py`).
 - **Inventory UI**: Grid layout, Paper doll slots, Stacking support.
-- **Narrative Fixes**: Fixed NPC positioning (Elara), increased dialogue radius, prevented AI crashes.
-- **Graphics**: Added Ore, Bridge, Chest, and Custom Boss sprites.
-- **Interaction**: "Inspect" skill reveals hidden doors/chests. "Interact" button usage.
 
 ## 4. Next Steps (Roadmap)
 ### Short Term
-- [ ] **Sound Effects**: Add audio for walking, attacking, and ambient tracks.
+- [x] **Sound Effects**: Add audio for walking, attacking, and ambient tracks. [Completed]
 - [ ] **Save/Load**: Validate the `dm.save()` mechanism robustly across sessions.
 - [ ] **More Content**: Add Level 2 (The Caverns) via `generator.py`.
 
