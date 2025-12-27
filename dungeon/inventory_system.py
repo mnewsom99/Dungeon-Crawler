@@ -111,11 +111,17 @@ class InventorySystem:
         
         if "heal" in props:
             val = props["heal"]
+            heal_amt = 0
+            
+            # Try simple int
             try:
-                # Expecting format like "2d6+2"
-                heal_amt = roll_dice(val)
+                heal_amt = int(val)
             except:
-                heal_amt = 5 # Fallback
+                # Try Dice
+                try:
+                    heal_amt = roll_dice(str(val))
+                except:
+                    heal_amt = 5 # Fallback
             
             old_hp = player.hp_current
             player.hp_current = min(player.hp_max, player.hp_current + heal_amt)
@@ -203,6 +209,11 @@ class InventorySystem:
              props["loot"] = new_loot_list
              source.properties = props
              flag_modified(source, "properties")
+             
+             if not new_loot_list:
+                 self.session.delete(source)
+                 msg = "Nothing left."
+
         else:
              source.loot = new_loot_list
              flag_modified(source, "loot")
@@ -334,3 +345,55 @@ class InventorySystem:
         self.session.commit()
         
         return f"Bought {template['name']} for {cost}g."
+
+    def remove_item(self, item_id, quantity=1):
+        """Removes a specific quantity of an item by ID."""
+        item = self.session.query(InventoryItem).filter_by(id=item_id).first()
+        if not item: return False
+        
+        if item.quantity > quantity:
+            item.quantity -= quantity
+            flag_modified(item, "quantity")
+        else:
+            self.session.delete(item)
+            
+        self.session.commit()
+        return True
+
+    def sell_item(self, player, item_id):
+        item = self.session.query(InventoryItem).filter_by(id=item_id, player=player).first()
+        if not item: return "Item not found."
+        
+        if item.is_equipped:
+            return "Unequip first!"
+            
+        # Determine Value (50% of base value, or default logic)
+        # We need to map back to a template to know value, OR store value in item.
+        # Currently value is in ITEM_TEMPLATES.
+        # Try to find template by name
+        value = 0
+        from .items import ITEM_TEMPLATES
+        # Ineffecient reverse lookup but works for small sets
+        for k, v in ITEM_TEMPLATES.items():
+            if v['name'] == item.name:
+                value = v['value'] // 2
+                break
+        
+        if value <= 0: value = 1 # Minimum 1g
+        
+        # Sell one from stack or all? 
+        # Let's simple sell 1
+        qty = 1
+        gain = value * qty
+        
+        player.gold = (player.gold or 0) + gain
+        
+        if item.quantity > 1:
+            item.quantity -= 1
+            flag_modified(item, "quantity")
+        else:
+            self.session.delete(item)
+            
+        self.session.commit()
+        return f"Sold {item.name} for {gain}g."
+        return True

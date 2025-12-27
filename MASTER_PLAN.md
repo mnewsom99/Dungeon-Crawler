@@ -16,21 +16,28 @@ The core hook is the "Agentic DM" - an AI (Ollama/Gemini) that generates dynamic
     - `ui.js`: React-less UI updates (Inventory, Stats, Chat). [Completed]
     - `main.js`: Input handling, state polling. [Completed]
 
-## 3. Recently Completed (v0.6)
-- **Engine Fix**: Rewrite of Rendering Engine (graphics.js) to fix blank screen issues.
-- **Visuals**: Restore Fog of War, Zoom support, and separate texture assets.
-- **Refactoring**: Split `dm.py` into modular systems (`inventory_system.py`).
-- **Inventory UI**: Grid layout, Paper doll slots, Stacking support.
+## 3. Recently Completed (v0.7 - "Combat Update")
+- **Combat System v2**: 
+    - Moved from flat actions to a **Traditional RPG Menu** (Root -> Submenus: Attack, Skills, Items).
+    - Added **Fog of War** logic to target selection (can't target what you can't see).
+    - Fixed UI event handling for robust mobile/click support.
+- **Interaction Layer**:
+    - Fixed `investigate` action to handle structured data (narrative + entity lists).
+    - Added popup notifications for Mining/Interacting.
+- **Bug Fixes**:
+    - Resolved critical UI nesting issues in `ui.js`.
+    - Fixed backend/frontend variable mismatches (`enemy_list` vs `world.enemies`).
 
 ## 4. Next Steps (Roadmap)
 ### Short Term
-- [x] **Sound Effects**: Add audio for walking, attacking, and ambient tracks. [Completed]
+- [ ] **Skills & Magic**: The UI component exists, but the "Skills" menu currently only has hardcoded placeholders. Needs a `SkillManager` backend.
+- [ ] **Consumables**: "Items" menu in combat needs to pull from actual Inventory `consumable` items.
+- [ ] **Enemy AI**: Make enemies smarter (move towards player, use special attacks).
 - [ ] **Save/Load**: Validate the `dm.save()` mechanism robustly across sessions.
-- [ ] **More Content**: Add Level 2 (The Caverns) via `generator.py`.
 
 ### Long Term
 - **Quests System**: A dedicated `quest_manager.py` to track multi-stage objectives.
-- **Magic System**: Spells, mana usage, and visual effects.
+- **New Biomes**: Add Level 2 (The Caverns) or "Forest" area.
 - **Multiplayer**: (Stretch Goal) WebSocket integration for real-time coop.
 
 ## 5. Development Guidelines

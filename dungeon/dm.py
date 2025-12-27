@@ -1,7 +1,6 @@
 from .database import get_session, Player, MapTile, Monster, InventoryItem, NPC, init_db, WorldObject
 from .rules import roll_dice, get_skill_level, award_skill_xp
 from .combat import CombatSystem
-from .ai_bridge import AIBridge
 from .generator import LevelBuilder
 from .dialogue import DialogueSystem
 from .inventory_system import InventorySystem
@@ -17,8 +16,10 @@ class DungeonMaster:
         self.prefetch_queue = queue.Queue()
         self.processing = set()
         self.combat = CombatSystem(self)
-        self.ai = AIBridge() # Initialize AI Bridge
+        # self.ai = AIBridge() # Removed LLM
         self.dialogue = DialogueSystem(self)
+        from .interactions import InteractionManager
+        self.interactions = InteractionManager(self)
         
         self._initialize_world()
 
@@ -48,6 +49,9 @@ class DungeonMaster:
     def buy_item(self, template_id):
         return self.inventory.buy_item(self.player, template_id)
 
+    def sell_item(self, item_id):
+        return self.inventory.sell_item(self.player, item_id)
+
     def _initialize_world(self):
         # Ensure player exists
         self.player = self.session.query(Player).first()
@@ -72,13 +76,25 @@ class DungeonMaster:
             self.update_visited(self.player.x, self.player.y, self.player.z)
             
             # --- Spawn Town NPCs ---
-            if not self.session.query(NPC).filter_by(name="Gareth").first():
-                self.session.add(NPC(
-                    name="Gareth",
-                    persona_prompt="You are Gareth, a gruff but skilled blacksmith. You sell weapons and armor.",
-                    location="Blacksmith",
-                    x=8, y=9, z=1
-                ))
+            # --- Spawn Town NPCs ---
+            # LEGACY FIX: Check for "Gareth Ironhand" specifically.
+            # If he exists (even in dungeon), DO NOT spawn the town placeholder.
+            gareth_exists = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
+            if not gareth_exists:
+                # Only spawn if NO Gareth exists at all (e.g. clean slate + no dungeon gen yet)
+                # But usually Generator runs first. 
+                # If we are here, and Generator ran, "Gareth Ironhand" should be in DB at Z=0.
+                pass 
+            
+            # Clean up duplicates (Migration)
+            # If we have "Gareth" (town) AND "Gareth Ironhand" (dungeon), delete "Gareth".
+            generic_gareth = self.session.query(NPC).filter_by(name="Gareth").first()
+            true_gareth = self.session.query(NPC).filter_by(name="Gareth Ironhand").first()
+            
+            if generic_gareth and true_gareth:
+                print("DM: Fixing Duplicate Gareth. Removing town placeholder.")
+                self.session.delete(generic_gareth)
+                self.session.commit()
             
             if not self.session.query(NPC).filter_by(name="Seraphina").first():
                 self.session.add(NPC(
@@ -224,22 +240,132 @@ class DungeonMaster:
                  return [self.player.x, self.player.y, self.player.z], "Encounter Started!"
              return [self.player.x, self.player.y, self.player.z], msg_data
 
+        if self.combat.is_active():
+            # Combat Movement Logic
+            # 1. Check Turn
+            encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+            if not encounter:
+                 # Should detect active via self.combat, but double check
+                 pass
+            elif encounter.turn_order[encounter.current_turn_index]["type"] != "player":
+                 return [self.player.x, self.player.y, self.player.z], "<b>It is not your turn!</b>"
+            
+            # 2. Update Position (We know it's valid/empty from checks above)
+            self.player.x = new_x
+            self.player.y = new_y
+            self.player.z = new_z
+            self.update_visited(new_x, new_y, new_z) # Fog of war updates
+            
+            # 3. Consume Turn
+            res = self.combat.player_action("move")
+            self.session.commit()
+            
+            # We return the new pos, but also maybe a narrative from combat?
+            # Main.js handles narrative in logs.
+            return [new_x, new_y, new_z], "You move."
+
         # 5. Check NPCs (Blocking? Or Chat Trigger?)
-        # Let's interact on bump for now, or just block
         npc = self.session.query(NPC).filter_by(x=new_x, y=new_y, z=new_z).first()
         if npc:
-             return [self.player.x, self.player.y, self.player.z], f"You bump into {npc.name}."
+             # Attempt to displace NPC to make room
+             candidates = [(new_x+1, new_y), (new_x-1, new_y), (new_x, new_y+1), (new_x, new_y-1)]
+             moved_npc = False
+             
+             for cx, cy in candidates:
+                 if cx == self.player.x and cy == self.player.y: continue # Don't swap immediately
+                 
+                 # Check Wall/Void
+                 ct = self.session.query(MapTile).filter_by(x=cx, y=cy, z=new_z).first()
+                 if not ct or ct.tile_type in ["wall", "water", "void"]: continue
+                 
+                 # Check Occupancy
+                 occ = self.session.query(NPC).filter_by(x=cx, y=cy, z=new_z).first()
+                 if occ: continue
+                 occ_m = self.session.query(Monster).filter_by(x=cx, y=cy, z=new_z).first()
+                 if occ_m: continue
+                 
+                 # Move NPC
+                 npc.x = cx
+                 npc.y = cy
+                 moved_npc = True
+                 self.session.add(npc)
+                 break
+                 
+             if moved_npc:
+                 pass # NPC moved, but let's effectively Block the player for this turn so they see the push
+                 # OR: allow player to enter? "You squeeze past".
+                 # Let's Move Player INTO the tile since it's now free.
+             else:
+                 return [self.player.x, self.player.y, self.player.z], f"You bump into {npc.name}. (Blocked)"
 
         # 6. Success - Commit Move
+        old_x, old_y, old_z = self.player.x, self.player.y, self.player.z
+        
         self.player.x = new_x
         self.player.y = new_y
         
+        self.session.commit() # Commit positions so NPC updates see new player pos
+
+        # --- NPC AI (Followers & Returning Home) ---
+        npcs = self.session.query(NPC).filter_by(z=old_z).all()
+        for f in npcs:
+            qs = f.quest_state or {}
+            status = qs.get("status")
+            
+            # A. Follower Logic
+            if status == "following":
+                dist = abs(f.x - old_x) + abs(f.y - old_y)
+                # Only move if not already at old pos (avoid stacking if multiple)
+                # And check reasonable distance (don't teleport across map)
+                if dist <= 5 and (f.x != old_x or f.y != old_y):
+                     # Check if old spot is empty (it should be, player just left)
+                     f.x = old_x
+                     f.y = old_y
+                     self.session.add(f)
+            
+            # B. Return Home Logic
+            elif "home" in qs and status != "following":
+                 hx, hy, hz = qs["home"]
+                 if f.z == hz and (f.x != hx or f.y != hy):
+                      # Determine direction
+                      dx = 0
+                      dy = 0
+                      if f.x < hx: dx = 1
+                      elif f.x > hx: dx = -1
+                      
+                      if f.y < hy: dy = 1
+                      elif f.y > hy: dy = -1
+                      
+                      # Try moving X then Y (Manhattan)
+                      # Check collision for next step
+                      target_x, target_y = f.x + dx, f.y
+                      if dx == 0: target_x, target_y = f.x, f.y + dy
+                      
+                      # Simple collision check
+                      # Avoid player
+                      if target_x == self.player.x and target_y == self.player.y: continue 
+                      
+                      # Avoid Walls
+                      ct = self.session.query(MapTile).filter_by(x=target_x, y=target_y, z=f.z).first()
+                      if ct and ct.tile_type not in ["wall", "water", "void"]:
+                           f.x = target_x
+                           f.y = target_y
+                           self.session.add(f)
+
         # 7. Update Visibility
         self.update_visited(new_x, new_y, new_z)
         self.save()
         
         # 8. Return Narrative (Static + Dynamic Events)
-        desc = self._generate_description(new_x, new_y, new_z) or ""
+        old_room = self._generate_description(old_x, old_y, old_z)
+        new_room = self._generate_description(new_x, new_y, new_z)
+        
+        desc = ""
+        if new_room and new_room != old_room:
+             desc = f"You enter {new_room}."
+        elif new_room == "Dungeon Entrance" and not desc:
+             # Always show entrance name if just lingering? No, prevent spam.
+             pass
 
         # Check Town Doors (Z=1)
         if new_z == 1:
@@ -330,24 +456,101 @@ class DungeonMaster:
         tile = sess.query(MapTile).filter_by(x=x, y=y, z=z).first()
         if not tile: return "Void."
         
-        # Standard Static Descriptions
+        # Room Definitions
+        # Helper to check bounds
+        def in_rect(rx, ry, w, h):
+            # Centered rect logic from generator?
+            # Generator used: range(cx - w//2, cx + w//2 + 1)
+            # So bounds are [cx - w//2, cx + w//2] inclusive
+            
+            # Let's just define explicit ranges based on known generator logic
+            pass
+
         if z == 1:
-            if x == 0 and y == 0: return "Town Square"
-            return None # "Oakhaven Details" - silenced
-        else:
+            # Town
+            if -8 <= x <= 0 and 1 <= y <= 7: return "Town Hall"
+            if 8 <= x <= 15 and 6 <= y <= 12: return "The Smithy"
+            if -14 <= x <= -8 and 6 <= y <= 12: return "Alchemist's Shop"
+            if abs(x) <= 20 and abs(y) <= 20: return "Town Square"
+            return "Wilderness"
+        elif z == 0:
             # Dungeon
-            return None # "Dungeon Corridor" - silenced
+            # 1. Start Room (0,0, 3x3) -> -1 to 1
+            if -1 <= x <= 1 and -1 <= y <= 1: return "Dungeon Entrance"
+            
+            # 2. Corridor (0, 2-8)
+            if x == 0 and 2 <= y <= 8: return "Dark Corridor"
+            
+            # 3. Grand Hall (0, 11, 7x5) -> -3 to 3, 9 to 13
+            if -3 <= x <= 3 and 9 <= y <= 13: return "Grand Hall"
+            
+            # 4. Armory (-10, 11, 5x5) -> -12 to -8, 9 to 13
+            if -12 <= x <= -8 and 9 <= y <= 13: return "Old Armory"
+            
+            # 5. Library (10, 11, 5x5) -> 8 to 12, 9 to 13
+            if 8 <= x <= 12 and 9 <= y <= 13: return "Dusty Library"
+            
+            # 6. Barracks (0, 20, 9x5) -> -4 to 4, 18 to 22
+            if -4 <= x <= 4 and 18 <= y <= 22: return "Guard Barracks"
+            
+            # 7. Jail (0, 30, 5x5) -> -2 to 2, 28 to 32
+            if -2 <= x <= 2 and 28 <= y <= 32: return "High Security Jail"
+            
+            return "Dungeon Tunnels"
+
+        return None
 
     def investigate_room(self):
-        """Active Skill: Analyze the current location in detail using AI."""
-        x, y, z = self.player.x, self.player.y, self.player.z
+        """Active Skill: Analyze location for hidden secrets."""
+        from .rules import roll_dice
+        from .database import Monster, WorldObject
+        from sqlalchemy.orm.attributes import flag_modified
         
-        # 1. Fetch Context & Nearby Entities (Radius 5)
-        # We want to return these to the frontend to populate the "Nearby" tab
-        nearby_entities = []
+        pl = self.player
+        skill_bonus = self.get_skill_level("investigation")
+        roll = roll_dice(20) + skill_bonus
         
-        # Monsters
-        from .database import Monster
+        # Room Description
+        x, y, z = pl.x, pl.y, pl.z
+        room_name = self._generate_description(x, y, z) or "Unknown Area"
+        
+        found = []
+        
+        # 1. Scan Tiles (Radius 3)
+        tiles = self.session.query(MapTile).filter(
+            MapTile.x.between(x-3, x+3),
+            MapTile.y.between(y-3, y+3),
+            MapTile.z == z
+        ).all()
+        
+        for t in tiles:
+            md = t.meta_data or {}
+            if md.get("hidden"):
+                dc = md.get("dc", 15) # Default DC 15
+                if roll >= dc:
+                    # REVEAL!
+                    md["hidden"] = False
+                    md["discovered"] = True
+                    t.meta_data = md
+                    flag_modified(t, "meta_data")
+                    found.append(f"Hidden {md.get('interact_name', 'Feature')}")
+
+        # 2. Scan Objects
+        objs = self.session.query(WorldObject).filter_by(z=z).all()
+        for o in objs:
+            dist = abs(o.x - x) + abs(o.y - y)
+            if dist <= 3:
+                props = o.properties or {}
+                if props.get("hidden"):
+                    dc = props.get("dc", 15)
+                    if roll >= dc:
+                        props["hidden"] = False
+                        props["discovered"] = True
+                        o.properties = props
+                        flag_modified(o, "properties")
+                        found.append(f"Hidden {o.name}")
+
+        # 3. Scan Visible Entities (for observation)
         monsters = self.session.query(Monster).filter(
             Monster.x.between(x-5, x+5),
             Monster.y.between(y-5, y+5),
@@ -355,71 +558,25 @@ class DungeonMaster:
             Monster.is_alive == True
         ).all()
         
-        for m in monsters:
-            dist = abs(m.x - x) + abs(m.y - y)
-            nearby_entities.append({
-                "name": m.name, 
-                "type": "monster", 
-                "dist": dist,
-                "status": f"HP: {m.hp_current}/{m.hp_max}"
-            })
-            
-        # Corpses
-        corpses = self.session.query(Monster).filter(
-            Monster.x.between(x-5, x+5),
-            Monster.y.between(y-5, y+5),
-            Monster.z == z,
-            Monster.is_alive == False
-        ).all()
-        for c in corpses:
-             nearby_entities.append({"name": f"Dead {c.name}", "type": "corpse", "dist": abs(c.x-x)+abs(c.y-y), "status": "Lootable"})
+        visible_threats = [m.name for m in monsters]
 
-        # 2. Build Prompt
-        context = []
-        if z == 1: context.append("Location: Oakhaven Town (Outdoors, Night)")
-        else: context.append("Location: Dungeon (Underground, Dark)")
-        
-        if monsters: context.append(f"Threats: {', '.join([m.name for m in monsters])}")
-        if corpses: context.append(f"Objects: {', '.join([c.name for c in corpses])}")
-        
-        # --- HIDDEN DISCOVERY ---
-        found_secrets = []
-        
-        # Check Tiles (Secret Doors)
-        nearby_tiles = self.session.query(MapTile).filter(
-            MapTile.x.between(x-2, x+2), MapTile.y.between(y-2, y+2), MapTile.z == z
-        ).all()
-        
-        for t in nearby_tiles:
-            if t.meta_data and t.meta_data.get("interactable") and t.meta_data.get("hidden") and not t.meta_data.get("discovered"):
-                 t.meta_data["discovered"] = True
-                 flag_modified(t, "meta_data")
-                 found_secrets.append(t.meta_data.get("interact_name", "Something hidden"))
-                 
-        # Check Objects (Hidden Chests)
-        nearby_objs = self.session.query(WorldObject).filter(
-             WorldObject.x.between(x-3, x+3), WorldObject.y.between(y-3, y+3), WorldObject.z == z
-        ).all()
-        for o in nearby_objs:
-             props = o.properties or {}
-             if props.get("hidden") and not props.get("discovered"):
-                 props["discovered"] = True
-                 o.properties = props
-                 flag_modified(o, "properties")
-                 found_secrets.append(o.name)
-                 
         self.session.commit()
         
-        if found_secrets:
-             context.append(f"SECRETS REVEALED: {', '.join(found_secrets)}")
-             
-        # 3. Call AI
-        prompt = f"The player investigates the area at {x},{y}. Describe what they see in vivid detail."
-        if found_secrets: prompt += " THEY HAVE FOUND HIDDEN ITEMS! Emphasize this discovery."
-        
-        desc = self.ai.chat(prompt, persona="dm", context=", ".join(context))
-        
-        return {"narrative": desc, "entities": nearby_entities}
+        narrative = f"You carefully investigate the {room_name}. (Rolled {roll})"
+        if found:
+            narrative += f"<br><span style='color:#55ff55'>You revealed: {', '.join(found)}!</span>"
+        else:
+            narrative += "<br>You find nothing hidden."
+            
+        entities = []
+        if monsters:
+             narrative += f"<br><span style='color:#ff8888'>You spot: {', '.join(visible_threats)}.</span>"
+             for m in monsters:
+                 dist = int(abs(m.x - x) + abs(m.y - y))
+                 entities.append({"name": m.name, "dist": dist, "status": "Hostile"})
+
+        return {"narrative": narrative, "entities": entities}
+
 
     def describe_current_room(self):
         # Legacy fallback or quick look
@@ -431,7 +588,12 @@ class DungeonMaster:
         px, py, pz = self.player.x, self.player.y, self.player.z
         
         # 1. Fetch visible tiles
-        visited_tiles = self.session.query(MapTile).filter_by(is_visited=True).all()
+        try:
+             visited_tiles = self.session.query(MapTile).filter_by(is_visited=True).all()
+        except:
+             self.session.rollback()
+             visited_tiles = self.session.query(MapTile).filter_by(is_visited=True).all()
+             
         map_data = {f"{t.x},{t.y},{t.z}": t.tile_type for t in visited_tiles}
         
         # Enemies
@@ -564,96 +726,8 @@ class DungeonMaster:
         }
 
     def player_interact(self, action, target_type, target_index):
-        """Handle interactions like looting."""
-        if action == "loot" and target_type == "corpse":
-            px, py, pz = self.player.x, self.player.y, self.player.z
-            target = None
-            
-            # 1. Target by ID if provided
-            if target_index:
-                 target = self.session.query(Monster).filter_by(id=target_index).first()
-            
-            # 2. Fallback to Proximity
-            if not target:
-                corpses = self.session.query(Monster).filter_by(is_alive=False, z=pz).all()
-                nearby = [c for c in corpses if abs(c.x - px) <= 1 and abs(c.y - py) <= 1]
-                if nearby:
-                    target = nearby[0]
-            
-            if not target:
-                return "There is nothing here to loot."
-            
-            # Return Loot List for UI
-            loot_data = target.loot or []
-            if not loot_data:
-                 return "The corpse is empty."
-                 
-            return {"type": "loot_window", "loot": loot_data, "corpse_id": target.id, "name": target.name}
-
-        elif action == "talk" and target_type == "npc":
-            # 1. Find NPC
-            px, py, pz = self.player.x, self.player.y, self.player.z
-            nearby = self.session.query(NPC).filter(
-                NPC.x.between(px-1, px+1),
-                NPC.y.between(py-1, py+1),
-                NPC.z == pz
-            ).all()
-            
-            if not nearby:
-                return "No one to talk to."
-            
-            target = nearby[0] # Assume interacting with first
-            
-            # Generate AI Dialogue
-            prompt = f"The player says hello to {target.name} ({target.location}, {target.persona_prompt}). Respond in character."
-            response = self.ai.chat(prompt, persona="npc")
-            
-            # Save interaction state? (Optional, maybe increment 'talk_count')
-            
-            
-            return f"{target.name} says: \"{response}\""
-            
-        elif action == "inspect" and target_type == "secret":
-            # Handle World Objects
-            if target_index.startswith("obj_"):
-                 oid = int(target_index.split("_")[1])
-                 obj = self.session.query(WorldObject).filter_by(id=oid).first()
-                 if not obj: return "It's gone."
-                 
-                 if abs(obj.x - self.player.x) > 1 or abs(obj.y - self.player.y) > 1:
-                     return "Too far away."
-                     
-                 if obj.obj_type == "chest":
-                     loot = (obj.properties or {}).get("loot", [])
-                     if not loot: return "It's empty."
-                     return {"type": "loot_window", "loot": loot, "corpse_id": target_index, "name": obj.name}
-
-            if target_index == "secret_door_1":
-                 # Trigger Door Reveal at (2, 30)
-                 door_tile = self.session.query(MapTile).filter_by(x=2, y=30, z=0).first()
-                 if door_tile:
-                     door_tile.tile_type = "door"
-                     door_tile.is_visited = True
-                     flag_modified(door_tile, "tile_type")
-                 else:
-                     # Create it
-                     new_door = MapTile(x=2, y=30, z=0, tile_type="door", is_visited=True)
-                     self.session.add(new_door)
-
-                 # Elara Comment & State Update
-                 elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
-                 elara_msg = ""
-                 if elara:
-                      elara_msg = "\n\nElara: 'You found it! Quick, let's go!'"
-                      q_state = elara.quest_state or {}
-                      q_state["status"] = "escorting"
-                      elara.quest_state = q_state
-                      flag_modified(elara, "quest_state")
-                 
-                 self.session.commit()
-                 return f"You investigate the crack and find a hidden latch. The wall grinds open!{elara_msg}"
-
-        return "Invalid action."
+        """Handle interactions like looting. Delegated to InteractionManager."""
+        return self.interactions.handle_interaction(action, target_type, target_index)
 
     def chat_with_npc(self, npc_index, message):
         """Handle persistent chat with an NPC."""
@@ -661,6 +735,10 @@ class DungeonMaster:
 
     def teleport_player(self, x, y, z):
         """Move player to a new zone/level."""
+        # End Combat if Active (Escaped!)
+        if self.combat.is_active():
+            self.combat.end_combat()
+
         self.player.x = x
         self.player.y = y
         self.player.z = z

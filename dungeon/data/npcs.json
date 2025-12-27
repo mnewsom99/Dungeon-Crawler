@@ -31,7 +31,7 @@
                 "time": 600,
                 "activity": "move_to",
                 "location": "Smithy",
-                "x": 8,
+                "x": 10,
                 "y": 8,
                 "z": 1
             },
@@ -40,15 +40,15 @@
                 "activity": "work_cycle",
                 "waypoints": [
                     [
-                        8,
+                        10,
                         8
                     ],
                     [
-                        9,
+                        11,
                         8
                     ],
                     [
-                        8,
+                        10,
                         9
                     ]
                 ]

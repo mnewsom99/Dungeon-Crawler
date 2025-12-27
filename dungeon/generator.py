@@ -111,11 +111,11 @@ class LevelBuilder:
             ("Skeleton Grunt", 10, 2, 10),    # Grand Hall
             
             # West Wing (Armory)
-            ("Armored Skeleton", 15, -10, 11), 
+            ("Armored Skeleton", 15, -11, 10), # Moved from -10,11 (Chest overlap)
             ("Armored Skeleton", 15, -11, 12),
             
             # East Wing (Library)
-            ("Rotted Skeleton", 8, 10, 11),
+            ("Rotted Skeleton", 8, 9, 12),     # Moved from 10,11 (Center room)
             ("Skeleton Mage", 12, 11, 12),
             
             # Barracks (The Horde)
@@ -285,8 +285,8 @@ class LevelBuilder:
             self.session.add(MapTile(x=pos[0], y=pos[1], z=z, tile_type=t_type, is_visited=True))
         
         # Update NPC Locations to match new interiors
-        # Elder -> Town Hall (0, 7) (Center of hall roughly)
-        # Gareth -> Smithy (12, 9)
+        # Elder -> Town Hall (0, 7)
+        # Gareth -> Smithy (11, 8)  <-- Moved next to Forge (12,9)
         # Seraphina -> Alchemist (-11, 9)
         # This is handled in npcs.json primarily, but if I modified it here I'd need to update json.
         # For now, current JSON coords might be slightly off (Elder is at 2,2 which is now grass).

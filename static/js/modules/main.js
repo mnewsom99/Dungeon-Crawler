@@ -23,7 +23,9 @@ async function fetchState() {
             if (window.updateNearbyList) window.updateNearbyList(data);
             if (window.updateInventoryUI && data.player) window.updateInventoryUI(data.player);
             if (window.updateSkillsUI && data.player) window.updateSkillsUI(data.player);
+            if (window.updateSkillsUI && data.player) window.updateSkillsUI(data.player);
             if (window.updateRightPanelItems && data.player) window.updateRightPanelItems(data.player);
+            if (window.updateHeroStats && data.player) window.updateHeroStats(data.player);
         } catch (e) { console.error("UI Update", e); }
 
     } catch (e) {
@@ -57,13 +59,34 @@ window.onload = function () {
     // Start Loop
     fetchState();
     setInterval(fetchState, 500);
+
+    // Initial Narrative
+    setTimeout(() => {
+        fetch('/api/narrative')
+            .then(r => r.json())
+            .then(d => {
+                if (d.narrative && window.updateLog) window.updateLog(d.narrative);
+            })
+            .catch(console.error);
+    }, 1000); // Small delay to ensure UI is ready
 };
 
 // Movement Logic
 async function move(d) {
     let p = (typeof d === 'string') ? { direction: d } : d;
     try {
-        await fetch('/api/move', { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'application/json' } });
+        const res = await fetch('/api/move', { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'application/json' } });
+        const json = await res.json();
+
+        // Log Handling
+        if (json.narrative && window.updateLog) {
+            window.updateLog(json.narrative);
+            if (json.narrative.includes("Success!") || json.narrative.includes("Gathered")) {
+                if (window.showTurnNotification) window.showTurnNotification("Gathered", json.narrative, 2000, "rgba(0, 100, 0, 0.8)");
+                if (window.audioSystem) window.audioSystem.play('coin');
+            }
+        }
+
         if (window.audioSystem) window.audioSystem.play('step');
         fetchState();
     } catch (e) { console.error(e); }

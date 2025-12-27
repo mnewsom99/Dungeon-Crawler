@@ -48,7 +48,7 @@ ITEM_TEMPLATES = {
         "name": "Healing Potion",
         "type": "consumable",
         "slot": None,
-        "properties": {"heal": "2d4+2", "icon": "🧪"},
+        "properties": {"heal": 2, "icon": "🧪"},
         "value": 25,
         "description": "Restores health."
     },
@@ -73,6 +73,6 @@ ITEM_TEMPLATES = {
 }
 
 SHOPS = {
-    "Gareth": ["iron_sword", "dagger", "greatsword", "leather_armor", "chainmail"],
+    "Gareth Ironhand": ["iron_sword", "dagger", "greatsword", "leather_armor", "chainmail"],
     "Seraphina": ["healing_potion"]
 }

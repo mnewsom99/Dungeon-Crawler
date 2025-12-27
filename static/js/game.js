@@ -180,6 +180,11 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     // Draw Corpses
     corpses.forEach(corpse => {
         const [cx, cy, cz] = corpse.xyz;
+
+        // Visibility Check: Must be on a visible/revealed tile
+        const tileKey = `${cx},${cy},${cz}`;
+        if (!visibleMap[tileKey]) return;
+
         if (Math.abs(cx - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(cy - cameraPos[1]) <= DRAW_RADIUS_Y) {
             const drawX = centerX + (cx - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
             const drawY = centerY + (cy - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
@@ -192,6 +197,15 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     // Draw NPCs
     npcs.forEach(npc => {
         const [nx, ny, nz] = npc.xyz;
+
+        // Visibility Check
+        const tileKey = `${nx},${ny},${nz}`;
+        if (!visibleMap[tileKey]) return;
+
+        // Optional: Distance check? (Uncomment if NPCs should also fade in dark)
+        // const distToPlayer = Math.sqrt(Math.pow(nx - playerPos[0], 2) + Math.pow(ny - playerPos[1], 2));
+        // if (distToPlayer > 6) return;
+
         if (Math.abs(nx - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(ny - cameraPos[1]) <= DRAW_RADIUS_Y) {
             const drawX = centerX + (nx - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
             const drawY = centerY + (ny - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
@@ -226,6 +240,16 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
     // Draw Enemies
     enemies.forEach(enemy => {
         const [ex, ey, ez] = enemy.xyz;
+
+        // Visibility Check
+        const tileKey = `${ex},${ey},${ez}`;
+        if (!visibleMap[tileKey]) return; // Must be on a valid tile
+
+        // Strict Fog of War: Don't show enemies in the "memory" shroud (distance > 6)
+        // This prevents seeing enemies down dark hallways before you get close
+        const distToPlayer = Math.sqrt(Math.pow(ex - playerPos[0], 2) + Math.pow(ey - playerPos[1], 2));
+        if (distToPlayer > 6.0) return;
+
         if (Math.abs(ex - cameraPos[0]) <= DRAW_RADIUS_X && Math.abs(ey - cameraPos[1]) <= DRAW_RADIUS_Y) {
             const drawX = centerX + (ex - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
             const drawY = centerY + (ey - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);

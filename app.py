@@ -48,7 +48,16 @@ def interact_specific():
 def chat():
     try:
         data = request.json
-        reply, name, can_trade_flag = dm.chat_with_npc(data.get("npc_index"), data.get("message"))
+        # dm.chat_with_npc now returns 3 values: reply, name, can_trade_flag
+        result = dm.chat_with_npc(data.get("npc_index"), data.get("message"))
+        
+        # Unpack safely (handle legacy 2-return case if needed, though we updated dm.py)
+        if len(result) == 3:
+             reply, name, can_trade_flag = result
+        else:
+             reply, name = result
+             can_trade_flag = False
+             
         return jsonify({"reply": reply, "npc_name": name, "can_trade": can_trade_flag})
     except Exception as e:
         print(f"API Error: {e}")
@@ -150,6 +159,25 @@ def buy_item():
     data = request.json
     result = dm.buy_item(data.get('item_id')) # item_id here is actually template_id string
     return jsonify({"message": result, "state": dm.get_state_dict()})
+
+@app.route('/api/shop/sell', methods=['POST'])
+def sell_item():
+    data = request.json
+    result = dm.sell_item(data.get('item_id')) # item_id here is Player's InventoryItem ID (int)
+    return jsonify({"message": result, "state": dm.get_state_dict()})
+
+@app.route('/api/action', methods=['POST'])
+def perform_action():
+    data = request.json
+    action = data.get('action')
+    
+    if action == "investigate":
+        result = dm.investigate_room()
+        # result is now a dict {narrative, entities}
+        narrative = result.get("narrative") if isinstance(result, dict) else result
+        return jsonify({"narrative": narrative, "state": dm.get_state_dict()})
+        
+    return jsonify({"message": "Unknown action"}), 400
 
 @app.route('/gallery')
 def gallery():

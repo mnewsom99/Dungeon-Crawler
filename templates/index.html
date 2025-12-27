@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dungeon Crawler</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=42">
 </head>
 
 <body>
@@ -53,6 +53,11 @@
                                 </tr>
                             </thead>
                             <tbody id="stat-body">
+                                <tr>
+                                    <td>HP</td>
+                                    <td id="stat-hp" style="color:#0f0; font-weight:bold;">10/10</td>
+                                    <td>Health Points</td>
+                                </tr>
                                 <tr>
                                     <td>STR</td>
                                     <td id="stat-str">10</td>
@@ -132,6 +137,12 @@
                     <button class="tab-btn" onclick="switchTab('quest')">Quest</button>
                 </div>
                 <div id="nearby-tab" class="tab-content active">
+                    <div style="margin-bottom: 5px; text-align: center;">
+                        <button onclick="performAction('investigate')"
+                            style="background: #224466; color: #acf; border: 1px solid #48c; padding: 5px 10px; cursor: pointer; width: 100%; font-size: 0.9em; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                            <span>👁</span> Investigate Area
+                        </button>
+                    </div>
                     <div id="nearby-list">
                         <p style="color: #666; font-style: italic;">Nothing of interest...</p>
                     </div>
@@ -155,7 +166,8 @@
             <div class="drag-handle"><span class="panel-title">ADVENTURE LOG</span> <span class="minimize-btn">_</span>
             </div>
             <div id="log-content" style="padding: 10px; overflow-y: auto; max-height: 150px;">
-                <p class="system-msg">Welcome to the dungeon...</p>
+                <p class="system-msg">You wake up in an unknown dungeon. You don't know where you are. The air is damp
+                    and stone walls surround you.</p>
             </div>
         </div>
 
@@ -200,37 +212,60 @@
                 <span id="chat-overlaid-name">NPC Name</span>
             </div>
             <div id="chat-content-wrapper">
-                <div id="chat-header">
+                <div id="chat-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <!-- Trade Button (Hidden by default) -->
+                    <button id="chat-trade-btn" onclick="openShop(activeChatNPCName)"
+                        style="display:none; padding:5px 10px; background:#d4af37; color:#000; font-weight:bold; cursor:pointer; border:1px solid #996515; border-radius:4px;">💰
+                        Trade</button>
+
                     <button class="close-btn" onclick="closeChat()"
-                        style="background:none; border:none; font-size:1.5em; cursor:pointer;">&times;</button>
+                        style="background:none; border:none; font-size:1.5em; cursor:pointer; margin-left:auto;">&times;</button>
                 </div>
                 <div id="chat-history"></div>
-                <div id="chat-input-area" class="chat-input-area">
-                    <input type="text" id="chat-input" placeholder="Say something..."
-                        onkeydown="if(event.key==='Enter') sendChat()">
-                    <button onclick="sendChat()" style="padding: 10px;">Send</button>
-                    <!-- Trade Button injected dynamically if merchant -->
-                    <button id="chat-trade-btn" onclick="openShop(activeChatNPCName)"
-                        style="display:none; margin-left:10px; background:#d4af37; color:#000;">💰 Trade</button>
-                </div>
             </div>
         </div>
 
         <!-- Shop Modal -->
         <div id="shop-modal" class="draggable-panel"
-            style="display: none; pointer-events: auto; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); width: 400px; height: 500px; z-index: 200; background: #1a1a1a; border: 2px solid #d4af37;">
+            style="display: none; pointer-events: auto; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); width: 700px; height: 500px; z-index: 200; background: #1a1a1a; border: 2px solid #d4af37;">
             <div class="drag-handle" style="background: #8a6e25; color: #fff;">
                 <span class="panel-title">MERCHANT</span>
                 <span class="minimize-btn" onclick="document.getElementById('shop-modal').style.display='none'">X</span>
             </div>
-            <div class="panel-content" style="padding: 0;">
+            <div class="panel-content"
+                style="padding: 0; display:flex; flex-direction:column; height:calc(100% - 30px);">
+                <!-- Header -->
                 <div
-                    style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between;">
-                    <span id="shop-merchant-name" style="font-weight: bold; color: #d4af37;">Merchant</span>
-                    <span style="color: #ffd700;">Gold: <span id="shop-player-gold">0</span>g</span>
+                    style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; background:#222;">
+                    <div>
+                        <span id="shop-merchant-name"
+                            style="font-weight: bold; color: #d4af37; font-size:1.2em;">Merchant</span>
+                        <div style="font-size:0.8em; color:#aaa;">Drag items to Buy/Sell</div>
+                    </div>
+                    <span style="color: #ffd700; font-size:1.2em;">Gold: <span id="shop-player-gold">0</span>g</span>
                 </div>
-                <div id="shop-list" style="padding: 10px; overflow-y: auto; height: 400px;">
-                    <!-- Items go here -->
+
+                <!-- Dual Grids -->
+                <div style="display:flex; flex:1; overflow:hidden;">
+                    <!-- Merchant Side -->
+                    <div style="flex:1; border-right:2px solid #444; display:flex; flex-direction:column;">
+                        <div style="padding:5px; background:#332200; color:#eba; font-weight:bold; text-align:center;">
+                            MERCHANT</div>
+                        <div id="shop-list" class="shop-grid"
+                            style="padding: 10px; overflow-y: auto; flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap:5px; align-content:start;">
+                            <!-- Items go here -->
+                        </div>
+                    </div>
+
+                    <!-- Player Side -->
+                    <div style="flex:1; display:flex; flex-direction:column;">
+                        <div style="padding:5px; background:#002200; color:#bea; font-weight:bold; text-align:center;">
+                            INVENTORY</div>
+                        <div id="player-shop-inv" class="shop-grid"
+                            style="padding: 10px; overflow-y: auto; flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap:5px; align-content:start;">
+                            <!-- Player Items go here -->
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -254,12 +289,12 @@
     </div>
 
     <!-- Game Modules -->
-    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=24"></script>
-    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=24"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=24"></script>
-    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=24"></script>
+    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=42"></script>
+    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=42"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=42"></script>
+    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=42"></script>
     <!-- MAIN LOGIC -->
-    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=24"></script>
+    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=42"></script>
 </body>
 
 </html>

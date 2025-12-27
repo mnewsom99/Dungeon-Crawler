@@ -12,6 +12,21 @@ class CombatSystem:
     def _get_modifier(self, score):
         return math.floor((score - 10) / 2)
 
+    def is_active(self):
+        """Check if there is an active combat encounter."""
+        return self.session.query(CombatEncounter).filter_by(is_active=True).first() is not None
+
+    def end_combat(self):
+        """Force end the active combat encounter."""
+        active = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+        if active:
+            active.is_active = False
+            for m in active.monsters:
+                m.state = "idle"
+            self.session.commit()
+
+
+
     def start_combat(self, target_enemy):
 
 
@@ -45,6 +60,19 @@ class CombatSystem:
             m.initiative = e_init
             m.state = "combat"
             participants.append({"type": "monster", "id": m.id, "init": e_init, "name": m.name})
+
+        # Check for Followers (NPCs with status='following')
+        from .database import NPC
+        followers = self.session.query(NPC).all() # Simple grab, filter in python for quest_state
+        for f in followers:
+            qs = f.quest_state or {}
+            if qs.get("status") == "following" and f.z == target_enemy.z:
+                # Calculate Distance (must be close enough to help)
+                dist = abs(f.x - target_enemy.x) + abs(f.y - target_enemy.y)
+                if dist < 10:
+                    # Generic NPC Init
+                    n_init = roll_dice(20) + 1 # +1 Dex assumed
+                    participants.append({"type": "npc", "id": f.id, "init": n_init, "name": f.name})
             
         # 4. Sort Turn Order (High to Low)
         participants.sort(key=lambda x: x["init"], reverse=True)
@@ -108,6 +136,23 @@ class CombatSystem:
             events.extend(self._resolve_player_attack(target))
         elif action_type == "second_wind":
             events.extend(self._resolve_second_wind())
+            
+        elif action_type == "defend":
+            # Temporary defense buff logic (simplified)
+            # In a real system we'd set a 'defending' flag on the player for turn duration
+            # For now, just a narrative event and maybe a small heal or just a message
+            events.append({"type": "text", "message": "You raise your guard, preparing for the next attack."})
+            events.append({"type": "popup", "title": "DEFENSE UP", "content": "Armor Class +2 (1 Turn)", "duration": 1500, "color": "rgba(50, 50, 200, 0.8)"})
+            # TODO: Implement actual AC mod in database or temp state
+            
+        elif action_type == "use_potion":
+            # Consumable Logic
+            heal = roll_dice(4) + roll_dice(4) + 2
+            self.dm.player.hp_current = min(self.dm.player.hp_max, self.dm.player.hp_current + heal)
+            events.append({"type": "anim", "actor": "player", "anim": "heal"})
+            events.append({"type": "text", "message": f"<span style='color:cyan'>Glug glug...</span> You drink a potion and recover <b>{heal} HP</b>."})
+            # TODO: Consume item from inventory
+
         elif action_type == "flee":
              # End Encounter
              encounter.is_active = False
@@ -115,6 +160,8 @@ class CombatSystem:
                  m.state = "idle"
              self.session.commit()
              return {"events": [{"type": "text", "message": "You fled the battle!"}]}
+        elif action_type == "move":
+             events.append({"type": "text", "message": "You reposition in the chaos."})
 
         # --- END TURN & CYCLE ---
         # Advance index
@@ -154,6 +201,12 @@ class CombatSystem:
             if monster and monster.is_alive:
                 events.append({"type": "turn_switch", "actor": "enemy", "title": f"{monster.name}'s Turn", "content": "Attacking..."})
                 events.extend(self._enemy_turn(monster))
+            elif actor_data["type"] == "npc":
+                from .database import NPC
+                npc = self.session.query(NPC).filter_by(id=actor_data["id"]).first()
+                if npc:
+                    events.append({"type": "turn_switch", "actor": "npc", "title": f"{npc.name}'s Turn", "content": "Acting..."})
+                    events.extend(self._npc_turn(npc, encounter))
             else:
                 # Skip dead
                 pass
@@ -198,31 +251,10 @@ class CombatSystem:
                 self.dm.player.xp += 50
                 
                 # Generate Loot
-                from .items import ITEM_TEMPLATES
-                loot = []
-                # Gold
-                gold = roll_dice(10) + 5
-                loot.append({"type": "gold", "qty": gold, "name": f"{gold} Gold Coins", "icon": "💰", "id": "gold"})
-                
-                # Item
-                roll = roll_dice(20)
-                code = None
-                if roll > 15: code = "chainmail"
-                elif roll > 10: code = "healing_potion"
-                elif roll > 5: code = "dagger"
-                
-                if code and code in ITEM_TEMPLATES:
-                    t = ITEM_TEMPLATES[code]
-                    loot.append({
-                        "type": "item", 
-                        "code": code, 
-                        "name": t['name'], 
-                        "icon": t['properties'].get('icon', '📦'),
-                        "id": f"loot_{random.randint(1000,9999)}"
-                    })
-                
-                enemy.loot = loot
+                self._generate_loot(enemy)
                 flag_modified(enemy, "loot")
+                
+                events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span>"})
                 
                 events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span>"})
             else:
@@ -262,9 +294,7 @@ class CombatSystem:
                 
                 # Respawn Mechanics
                 self.dm.player.hp_current = self.dm.player.hp_max
-                self.dm.player.x = 0
-                self.dm.player.y = 0
-                self.dm.player.z = 1 # Town Plaza
+                self.dm.teleport_player(0, 0, 1) # Town Plaza
                 
                 loss = int((self.dm.player.gold or 0) * 0.1)
                 self.dm.player.gold = (self.dm.player.gold or 0) - loss
@@ -301,3 +331,133 @@ class CombatSystem:
             })
             
         return events
+
+    def _npc_turn(self, npc, encounter):
+        """Automated turn for friendly NPCs."""
+        events = []
+        
+        # 1. Select Target (First alive monster)
+        # Improvement: Select closest monster
+        targets = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
+        if not targets:
+             return [{"type": "text", "message": f"{npc.name} looks around, finding no targets."}]
+        
+        # Sort by distance
+        targets.sort(key=lambda m: abs(m.x - npc.x) + abs(m.y - npc.y))
+        target = targets[0]
+
+        # 2. Determine Capabilities
+        is_mage = "Seraphina" in npc.name
+        attack_range = 6 if is_mage else 1
+        
+        # 3. Movement Logic
+        dist = max(abs(target.x - npc.x), abs(target.y - npc.y)) # Chebyshev distance for tiles
+        
+        if dist > attack_range:
+            # Move closer
+            dx = 0
+            dy = 0
+            if npc.x < target.x: dx = 1
+            elif npc.x > target.x: dx = -1
+            
+            if npc.y < target.y: dy = 1
+            elif npc.y > target.y: dy = -1
+            
+            # Try X then Y, or diagonal
+            # Simplified pathfinding: Just try the ideal step
+            new_x = npc.x + dx
+            new_y = npc.y + dy
+            
+            # Collision Check
+            from .database import MapTile, NPC
+            blocked = False
+            
+            # Wall
+            tile = self.session.query(MapTile).filter_by(x=new_x, y=new_y, z=npc.z).first()
+            if not tile or tile.tile_type in ["wall", "void", "water"]: blocked = True
+            
+            # Occupied
+            if not blocked:
+                if new_x == self.dm.player.x and new_y == self.dm.player.y: blocked = True
+                elif self.session.query(NPC).filter_by(x=new_x, y=new_y, z=npc.z).first(): blocked = True
+                elif self.session.query(Monster).filter_by(x=new_x, y=new_y, z=npc.z).first(): blocked = True
+            
+            if not blocked:
+                npc.x = new_x
+                npc.y = new_y
+                events.append({"type": "text", "message": f"{npc.name} moves into position."})
+                self.session.add(npc)
+                # Recalculate dist
+                dist = max(abs(target.x - npc.x), abs(target.y - npc.y))
+            else:
+                events.append({"type": "text", "message": f"{npc.name} tries to move but is blocked."})
+
+        # 4. Attack Logic
+        if dist <= attack_range:
+            attack_roll = roll_dice(20) + 3 # +3 Proficiency/Stat assumed
+            dmg_roll = 0
+            action_name = "attacks"
+            anim = "attack"
+            
+            if is_mage:
+                action_name = "casts Firebolt at"
+                anim = "magic" 
+                dmg_roll = roll_dice(10) # 1d10
+            else:
+                dmg_roll = roll_dice(6) + 2 # 1d6+2 Mace
+                
+            events.append({"type": "anim", "actor": "npc", "anim": anim})
+            
+            if attack_roll >= target.armor_class:
+                target.hp_current -= dmg_roll
+                
+                # Check Death
+                if target.hp_current <= 0:
+                    target.is_alive = False
+                    target.state = "dead"
+                    target.state = "dead"
+                    self._generate_loot(target)
+                    flag_modified(target, "state")
+                    flag_modified(target, "loot")
+                    self.dm.player.xp += 25 # Assist XP
+                    events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} for <b>{dmg_roll}</b> damage. <span style='color:red'>It is destroyed!</span>"})
+                else:
+                    events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} for <b>{dmg_roll}</b> damage."})
+            else:
+                events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} but misses."})
+        else:
+             events.append({"type": "text", "message": f"{npc.name} is too far away to attack."})
+            
+        return events
+        return events
+
+    def _generate_loot(self, enemy):
+        """Generates loot for a fresh corpse."""
+        from .items import ITEM_TEMPLATES
+        loot = []
+        # Gold
+        gold = roll_dice(10) + 5
+        loot.append({"type": "gold", "qty": gold, "name": f"{gold} Gold Coins", "icon": "💰", "id": "gold"})
+        
+        # Item (Boosted Rates)
+        roll = roll_dice(20)
+        code = None
+        if roll > 10: code = "chainmail" # Was 15
+        elif roll > 6: code = "healing_potion" # Was 10
+        elif roll > 2: code = "dagger" # Was 5
+        
+        # Chance for second item
+        if roll_dice(20) > 15:
+             loot.append({"type": "item", "code": "healing_potion", "name": "Healing Potion", "icon": "🧪", "id": f"loot_{random.randint(1000,9999)}"})
+        
+        if code and code in ITEM_TEMPLATES:
+            t = ITEM_TEMPLATES[code]
+            loot.append({
+                "type": "item", 
+                "code": code, 
+                "name": t['name'], 
+                "icon": t['properties'].get('icon', '📦'),
+                "id": f"loot_{random.randint(1000,9999)}"
+            })
+        
+        enemy.loot = loot

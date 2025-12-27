@@ -63,9 +63,19 @@ body {
 }
 
 .panel-content {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    flex-grow: 1;
+    height: 100%;
+    /* Ensure it fills parent */
+    color: #ddd;
+}
+
+/* Ensure direct children that are NOT tab-content (like static headers) have padding if needed */
+.panel-content>*:not(.tab-content):not(.tab-header) {
     padding: 10px;
-    overflow-y: auto;
-    max-height: 500px;
 }
 
 /* Reused Styles with Tweaks */
@@ -103,6 +113,10 @@ body {
     display: none;
     flex-direction: column;
     gap: 10px;
+    overflow-y: auto;
+    flex-grow: 1;
+    padding: 10px;
+    /* moved padding here */
 }
 
 .tab-content.active {
@@ -135,6 +149,84 @@ body {
 .game-area,
 #controls {
     display: none !important;
+}
+
+/* Combat RPG Menu */
+.rpg-btn {
+    background: #222;
+    color: #ddd;
+    border: 1px solid #444;
+    padding: 10px;
+    font-size: 0.9em;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.2s;
+}
+
+.rpg-btn:hover {
+    background: #333;
+    border-color: #666;
+    transform: scale(1.02);
+}
+
+.btn-attack {
+    border-bottom: 2px solid #a00;
+}
+
+.btn-skills {
+    border-bottom: 2px solid #00a;
+}
+
+.btn-items {
+    border-bottom: 2px solid #aa0;
+}
+
+.btn-defend {
+    border-bottom: 2px solid #888;
+}
+
+.btn-flee {
+    border-bottom: 2px solid #500;
+}
+
+.rpg-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    max-height: 140px;
+    margin-top: 5px;
+}
+
+.rpg-list-btn {
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #eee;
+    padding: 6px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.rpg-list-btn:hover {
+    background: #2a2a2a;
+}
+
+.rpg-submenu-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid #333;
+    margin-bottom: 5px;
+}
+
+.rpg-back-btn {
+    background: none;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 2px 6px;
+    cursor: pointer;
+    font-size: 0.8em;
 }
 
 /* RPG Chat Popup */
@@ -691,14 +783,14 @@ button:hover {
 /* Turn Notification Overlay */
 #turn-notification {
     position: absolute;
-    top: 30%;
+    top: 40%;
     left: 50%;
     transform: translate(-50%, -50%);
     background: rgba(0, 0, 0, 0.9);
     border: 3px solid #ff0000;
     color: #fff;
-    padding: 20px 40px;
-    font-size: 24px;
+    padding: 10px 20px;
+    font-size: 14px;
     font-weight: bold;
     text-align: center;
     border-radius: 10px;
