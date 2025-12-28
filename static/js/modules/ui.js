@@ -141,6 +141,45 @@ function updateNearbyList(data) {
         });
     }
 
+    // Resources (Tiles)
+    if (data.world.map) {
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                if (dx === 0 && dy === 0) continue;
+                const tx = px + dx;
+                const ty = py + dy;
+                const key = `${tx},${ty},${pz}`;
+
+                const tileType = data.world.map[key];
+                if (!tileType) continue;
+
+                if (tileType === 'rock') {
+                    items.push({
+                        html: `
+                            <div class="interaction-item" style="border:1px solid #555; margin-bottom:5px; padding:5px; background: #222;">
+                                <div style="font-weight:bold; color:#aaa;">Iron Ore</div>
+                                <div class="interaction-actions">
+                                     <button onclick="performTileAction('mine', '${key}')">⛏️ Mine</button>
+                                </div>
+                            </div>
+                         `
+                    });
+                } else if (tileType === 'flower_pot') {
+                    items.push({
+                        html: `
+                            <div class="interaction-item" style="border:1px solid #0a0; margin-bottom:5px; padding:5px; background: #020;">
+                                <div style="font-weight:bold; color:#afa;">Mystic Herb</div>
+                                <div class="interaction-actions">
+                                     <button onclick="performTileAction('gather', '${key}')">🌿 Gather</button>
+                                </div>
+                            </div>
+                         `
+                    });
+                }
+            }
+        }
+    }
+
     // Corpses (Loot)
     if (data.corpses) {
         data.corpses.forEach(c => {
@@ -233,6 +272,10 @@ function openChat(npcId, npcName) {
 function closeChat() {
     activeChatNPCId = null;
     document.getElementById('chat-modal').style.display = 'none';
+
+    // Also close Shop if open (User requested)
+    const shopModal = document.getElementById('shop-modal');
+    if (shopModal) shopModal.style.display = 'none';
 }
 
 
@@ -446,1047 +489,10 @@ async function resetGame() {
     window.location.reload();
 }
 
-// --- Traditional RPG Combat Menu System ---
-let combatMenuState = 'root'; // root, attack, skills, items
+// --- MODULES EXTRACTED ---
+// combat-logic -> ui_combat.js
+// inventory-logic -> ui_inventory.js
 
-function updateCombatUI(combatState) {
-    const controls = document.getElementById('combat-controls');
-    if (combatState.active) {
-        controls.style.display = 'block';
-        const contentDiv = controls.querySelector('.panel-content');
-        const isPlayerTurn = combatState.current_turn === 'player';
-
-        // Base Structure (Header)
-        let html = `
-            <div style="text-align:center; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:5px;">
-                <h3 style="margin:0; color:${isPlayerTurn ? '#5f5' : '#f55'}; text-shadow:0 0 5px ${isPlayerTurn ? '#050' : '#500'};">
-                    ${isPlayerTurn ? 'YOUR COMMAND' : 'ENEMY TURN'}
-                </h3>
-            </div>
-            <div id="combat-menu-area" style="min-height:160px;"></div>
-            <div id="c-turn-order" style="font-size:0.75em; color:#888; border-top:1px dashed #444; margin-top:5px; padding-top:2px;"></div>
-        `;
-
-        if (contentDiv.innerHTML.indexOf('YOUR COMMAND') === -1 && contentDiv.innerHTML.indexOf('ENEMY TURN') === -1) {
-            contentDiv.innerHTML = html;
-        } else {
-            // Update Header Title Only if needed
-            const h3 = contentDiv.querySelector('h3');
-            if (h3) {
-                const newText = isPlayerTurn ? 'YOUR COMMAND' : 'ENEMY TURN';
-                if (h3.innerText !== newText) {
-                    h3.style.color = isPlayerTurn ? '#5f5' : '#f55';
-                    h3.innerText = newText;
-                    // Only reset menu if turn CHANGED
-                    if (isPlayerTurn) combatMenuState = 'root';
-                }
-            }
-        }
-
-        // --- Render Menu Area based on State ---
-        const menuArea = document.getElementById('combat-menu-area');
-        if (!isPlayerTurn) {
-            combatMenuState = 'root'; // Reset for next turn
-            menuArea.innerHTML = `<div style="text-align:center; padding-top:40px; color:#aaa; font-style:italic;">Waiting...</div>`;
-        } else {
-            renderPlayerMenu(menuArea, combatState);
-        }
-
-        // --- Render Turn Order ---
-        const turnHtml = (combatState.actors || []).map(actor => {
-            const isCurrent = (combatState.turn_index !== undefined) && (combatState.actors.indexOf(actor) === combatState.turn_index);
-            const style = isCurrent ? "color:#fff; background:#222; font-weight:bold;" : "color:#666;";
-            const mark = isCurrent ? "▶" : "";
-            return `<span style="${style} margin-right:5px;">${mark}${actor.name}</span>`;
-        }).join(" | ");
-        const orderEl = document.getElementById('c-turn-order');
-        if (orderEl) orderEl.innerHTML = turnHtml;
-
-        if (isPlayerTurn) controls.style.borderColor = '#00aa00';
-        else controls.style.borderColor = '#aa0000';
-
-    } else {
-        controls.style.display = 'none';
-        combatMenuState = 'root'; // Reset
-    }
-}
-
-function renderPlayerMenu(container, combatState) {
-    let html = '';
-
-    // ROOT MENU
-    if (combatMenuState === 'root') {
-        html = `
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; padding:10px;">
-            <button onclick="setCombatMenu('attack')" class="rpg-btn btn-attack">⚔ ATTACK</button>
-            <button onclick="setCombatMenu('skills')" class="rpg-btn btn-skills">✨ SKILLS</button>
-            <button onclick="setCombatMenu('items')" class="rpg-btn btn-items">🎒 ITEMS</button>
-            <button onclick="combatAction('defend')" class="rpg-btn btn-defend">🛡 DEFEND</button>
-            <button onclick="combatAction('flee')" class="rpg-btn btn-flee" style="grid-column: span 2;">🏃 FLEE</button>
-        </div>
-        <div style="text-align:center; font-size:0.7em; color:#555; margin-top:5px;">Move: WASD</div>
-        `;
-    }
-
-    // ATTACK SUB-MENU (Target Selection)
-    else if (combatMenuState === 'attack') {
-        const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
-
-        let listHtml = '';
-        if (enemies.length === 0) listHtml = '<div style="color:#666;">No targets.</div>';
-
-        enemies.forEach(e => {
-            if (e.hp <= 0) return;
-            const px = window.gameState.player.xyz[0];
-            const py = window.gameState.player.xyz[1];
-            const dist = Math.abs(e.xyz[0] - px) + Math.abs(e.xyz[1] - py);
-
-            // Fog of War: Hide enemies that are too far away (not seen)
-            if (dist > 6) return;
-
-            const canHit = dist <= 1.5;
-
-            // Note: We use global function combatAction() which is defined below
-            listHtml += `
-            <button onclick="${canHit ? `combatAction('attack', '${e.id}')` : ''}" 
-                    class="rpg-list-btn" ${canHit ? '' : 'disabled'}
-                    style="${canHit ? 'border-left: 4px solid #f00;' : 'opacity:0.5;'}">
-                <div style="display:flex; justify-content:space-between; pointer-events:none;">
-                    <span>${e.name}</span>
-                    <span>${e.hp}/${e.max_hp}</span>
-                </div>
-                <div style="font-size:0.8em; color:#aaa; pointer-events:none;">${canHit ? 'In Range' : dist + 'm (Too Far)'}</div>
-            </button>`;
-        });
-
-        html = `
-        <div class="rpg-submenu-header">
-            <button onclick="setCombatMenu('root')" class="rpg-back-btn">⬅ Back</button>
-            <span>Select Target</span>
-        </div>
-        <div class="rpg-list-container">
-            ${listHtml}
-        </div>`;
-    }
-
-    // SKILLS SUB-MENU
-    else if (combatMenuState === 'skills') {
-        // Hardcoded skills for now, can be dynamic later
-        html = `
-        <div class="rpg-submenu-header">
-            <button onclick="setCombatMenu('root')" class="rpg-back-btn">⬅ Back</button>
-            <span>Select Skill</span>
-        </div>
-        <div class="rpg-list-container">
-            <button onclick="combatAction('second_wind')" class="rpg-list-btn" style="border-left:4px solid #0f0;">
-                <b>Second Wind</b><br>
-                <span style="font-size:0.8em; color:#aaa;">Recover HP (Bonus Action)</span>
-            </button>
-            <!-- Placeholder for future skills -->
-            <button disabled class="rpg-list-btn" style="opacity:0.5;">
-                <b>Fireball</b><br>
-                <span style="font-size:0.8em; color:#aaa;">(Locked - Lv 3)</span>
-            </button>
-        </div>`;
-    }
-
-    // ITEMS SUB-MENU
-    else if (combatMenuState === 'items') {
-        // Need to inventory lookup? For now just Potion placeholder
-        html = `
-        <div class="rpg-submenu-header">
-            <button onclick="setCombatMenu('root')" class="rpg-back-btn">⬅ Back</button>
-            <span>Select Item</span>
-        </div>
-        <div class="rpg-list-container">
-            <button onclick="combatAction('use_potion')" class="rpg-list-btn" style="border-left:4px solid #ff0;">
-                <b>Healing Potion</b><br>
-                <span style="font-size:0.8em; color:#aaa;">Restores 2d4+2 HP</span>
-            </button>
-        </div>`;
-    }
-
-    container.innerHTML = html;
-}
-
-
-const setCombatMenu = function (state) {
-    combatMenuState = state;
-    const controls = document.getElementById('combat-controls');
-    if (controls) {
-        const area = document.getElementById('combat-menu-area');
-        if (area && window.gameState && window.gameState.combat) {
-            renderPlayerMenu(area, window.gameState.combat);
-        }
-    }
-};
-window.setCombatMenu = setCombatMenu;
-
-
-const combatAction = async function (actionType, targetId = null) {
-    const controls = document.getElementById('combat-controls');
-    if (controls) {
-        controls.style.opacity = '0.5';
-        controls.style.pointerEvents = 'none';
-        // Add loading spinner?
-    }
-
-    console.log("Combat Triggered:", actionType, targetId); // Debug Log
-
-    try {
-        const payload = { action: actionType };
-        if (targetId) payload.target_id = targetId;
-
-        const response = await fetch('/api/combat/action', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-
-        if (data.result && data.result.events) {
-            await playCombatEvents(data.result.events);
-        } else if (data.result && typeof data.result === 'string') {
-            logMessage(data.result);
-        }
-
-        fetchState();
-
-    } catch (e) {
-        console.error("Combat Action Error:", e);
-    } finally {
-        if (controls) {
-            controls.style.opacity = '1';
-            controls.style.pointerEvents = 'auto';
-        }
-    }
-};
-window.combatAction = combatAction; // Force Global
-
-async function playCombatEvents(events) {
-    for (const evt of events) {
-        if (evt.type === 'text') {
-            logMessage(evt.message);
-            await new Promise(r => setTimeout(r, 800));
-        } else if (evt.type === 'anim') {
-
-            if (evt.actor === 'player') {
-                audioSystem.play('attack');
-                document.body.style.boxShadow = "inset 0 0 50px white";
-                setTimeout(() => document.body.style.boxShadow = "none", 100);
-            } else if (evt.actor === 'enemy') {
-                audioSystem.play('hit');
-                document.body.style.boxShadow = "inset 0 0 50px red";
-                setTimeout(() => document.body.style.boxShadow = "none", 100);
-            }
-            await new Promise(r => setTimeout(r, 300));
-
-        } else if (evt.type === 'switch_turn' || evt.type === 'turn_switch') { // Support both
-            const isEnemy = evt.actor === 'enemy';
-            const title = evt.title || (isEnemy ? "Enemy Turn" : "Player Turn");
-            const content = evt.content || (isEnemy ? "Attacking..." : "Ready!");
-            const color = isEnemy ? "rgba(100, 0, 0, 0.8)" : "rgba(0, 100, 0, 0.8)";
-            await showTurnNotification(title, content, 1500, color);
-
-        } else if (evt.type === 'popup') {
-            // Check for specific keywords to determine color if not explicit
-            let color = "rgba(0, 0, 0, 0.8)"; // Default Black
-            if (evt.title && (evt.title.includes("HIT") || evt.title.includes("DAMAGE"))) color = "rgba(150, 0, 0, 0.9)"; // Red
-            if (evt.title && (evt.title.includes("VICTORY") || evt.title.includes("Player"))) {
-                color = "rgba(0, 150, 0, 0.9)"; // Green
-                audioSystem.play('coin'); // Victory Fanfare substitute
-            }
-            if (evt.title && (evt.title.includes("MISS"))) color = "rgba(100, 100, 0, 0.9)"; // Yellow/Gold
-
-            // Allow override
-            if (evt.color) color = evt.color;
-
-            await showTurnNotification(evt.title, evt.content, evt.duration || 1500, color);
-        }
-    }
-}
-
-function showTurnNotification(title, content, duration = 1500, bgColor = "rgba(0, 0, 0, 0.8)") {
-    return new Promise(resolve => {
-        const el = document.getElementById('turn-notification');
-        const titleEl = el.querySelector('#turn-title');
-        const contentEl = el.querySelector('#turn-content');
-
-        if (title) titleEl.textContent = title;
-        if (content) contentEl.innerHTML = content;
-
-        el.style.backgroundColor = bgColor;
-        el.style.display = 'block';
-
-        // Fade In
-        setTimeout(() => el.style.opacity = '1', 10);
-
-        // Wait
-        setTimeout(() => {
-            // Fade Out
-            el.style.opacity = '0';
-            setTimeout(() => {
-                el.style.display = 'none';
-                resolve();
-            }, 300);
-        }, duration);
-    });
-}
-
-
-// --- Inventory System (Grid & Paperdoll) ---
-window.updateInventoryUI = function (player) {
-    if (!player || !player.inventory) return;
-
-    const equippedDiv = document.getElementById('equipped-slots');
-    const backpackUl = document.getElementById('inventory-list'); // Repurpose this container as grid
-
-    // --- 1. Paperdoll Layout ---
-    // Define Paper Doll Slots
-    const dollSlots = [
-        { key: 'head', icon: 'helm', x: 1, y: 0, label: "Head" },
-        { key: 'neck', icon: 'ring', x: 2, y: 0, label: "Neck" }, // Close enough
-        { key: 'chest', icon: 'chest', x: 1, y: 1, label: "Chest" },
-        { key: 'hands', icon: 'glove', x: 0, y: 1, label: "Hands" },
-        { key: 'main_hand', icon: 'sword', x: 0, y: 2, label: "Main Hand" },
-        { key: 'off_hand', icon: 'shield', x: 2, y: 2, label: "Off Hand" },
-        { key: 'legs', icon: 'legs', x: 1, y: 2, label: "Legs" },
-        { key: 'feet', icon: 'boots', x: 1, y: 3, label: "Feet" }
-    ];
-
-    // Sprite Map (32x32 Grid) for Items.png
-    // Row 1: Sword(0,0), Chest(1,0), Helm(2,0), Boots(3,0)
-    // Row 2: Potion(0,1), Ore(1,1), Herb(2,1), Coin(3,1)
-    // Row 3: Shield(0,2), Key(1,2), Ring(2,2), Glove(3,2)
-    // Emoji Icons Fallback (Primary now)
-    const iconMap = {
-        'Training Sword': "⚔️", 'Iron Sword': "⚔️",
-        'Cloth Tunic': "👕", 'Leather Armor': "👕",
-        'Leather Helmet': "🧢", 'Iron Helmet': "🪖",
-        'Leather Boots': "👢",
-        'Healing Potion': "🧪",
-        'Iron Ore': "🪨",
-        'Mystic Herb': "🌿",
-        'Gold': "💰",
-        'Wooden Shield': "🛡️",
-        'Iron Key': "🔑",
-        'Ring': "💍",
-        'Leather Gloves': "🧤"
-    };
-
-    // Fallback Icons
-    const defaultIcons = {
-        'head': { x: 2, y: 0 }, 'chest': { x: 1, y: 0 }, 'feet': { x: 3, y: 0 }, 'main_hand': { x: 0, y: 0 },
-        'consumable': { x: 0, y: 1 }, 'material': { x: 1, y: 1 }
-    };
-
-    // Container for doll
-    let dollHtml = `<div style="position:relative; width:120px; height:160px; margin: 0 auto; background:#111; border:1px solid #444;">`;
-
-    dollSlots.forEach(slot => {
-        const item = player.inventory.find(i => i.is_equipped && i.slot === slot.key);
-        const top = slot.y * 36 + 10;
-        const left = slot.x * 36 + 6;
-
-        let content = `<div style="opacity:0.2; font-size:10px; text-align:center; padding-top:10px;">${slot.label}</div>`;
-        let tooltip = slot.label;
-        let onClick = "";
-
-        if (item) {
-            // Find Icon (Emoji preferred)
-            let iconStr = "📦";
-            if (item.properties && item.properties.icon) iconStr = item.properties.icon;
-            else if (iconMap[item.name]) iconStr = iconMap[item.name];
-
-            content = `<div style="font-size:24px; line-height:34px; text-align:center;">${iconStr}</div>`;
-            tooltip = `${item.name}\n${item.item_type}`;
-
-            // Interaction: Unequip
-            // We use a context/click approach. For now: Click to Unequip
-            onClick = `onclick="if(confirm('Unequip ${item.name}?')) unequipItem(${item.id})"`;
-        }
-
-        dollHtml += `
-            <div class="paper-doll-slot" ${onClick} title="${tooltip}"
-                 style="position:absolute; top:${top}px; left:${left}px; width:34px; height:34px; border:1px solid #666; background:#222; cursor:pointer;">
-                 ${content}
-            </div>
-        `;
-    });
-    dollHtml += `</div>`;
-    equippedDiv.innerHTML = dollHtml;
-
-
-    // --- 2. Grid Backpack ---
-    // Max 20 slots (5x4)
-    const MAX_SLOTS = 20;
-    const bagItems = player.inventory.filter(i => !i.is_equipped);
-
-    // Reuse inventory-list but style it as grid
-    backpackUl.style.display = 'grid';
-    backpackUl.style.gridTemplateColumns = 'repeat(5, 1fr)';
-    backpackUl.style.gap = '4px';
-    backpackUl.style.listStyle = 'none';
-    backpackUl.style.padding = '0';
-
-    backpackUl.innerHTML = '';
-
-    for (let i = 0; i < MAX_SLOTS; i++) {
-        const item = bagItems[i];
-        const li = document.createElement('li');
-        li.style.width = '36px';
-        li.style.height = '36px';
-        li.style.background = '#1a1a1a';
-        li.style.border = '1px solid #333';
-        li.style.position = 'relative';
-
-        if (item) {
-            li.style.cursor = 'pointer';
-            li.title = item.name;
-
-            // Icon (Emoji)
-            let iconStr = "📦";
-            if (item.properties && item.properties.icon) iconStr = item.properties.icon;
-            else if (iconMap[item.name]) iconStr = iconMap[item.name];
-
-            li.innerHTML = `
-                <div style="font-size:24px; line-height:36px; text-align:center;">${iconStr}</div>
-                ${item.quantity > 1 ? `<span style="position:absolute; bottom:0; right:1px; color:#fff; font-size:10px; text-shadow:1px 1px 0 #000;">${item.quantiy || item.quantity}</span>` : ''}
-            `;
-
-            // Interaction: Equip or Use
-            li.onclick = () => {
-                if (item.slot) equipItem(item.id);
-                else if (item.item_type === 'consumable') useItem(item.id);
-            };
-        }
-
-        backpackUl.appendChild(li);
-    }
-
-    // Update Gold
-    if (document.getElementById('stat-gold')) {
-        document.getElementById('stat-gold').innerText = player.gold || 0;
-    }
-};
-
-window.updateSkillsUI = function (player) {
-    const list = document.getElementById('skills-list');
-    if (!list) return;
-
-    list.innerHTML = '';
-    const skills = player.skills || {};
-
-    if (Object.keys(skills).length === 0) {
-        list.innerHTML = '<span style="color:#666; font-style:italic;">No skills learnt.</span>';
-        return;
-    }
-
-    for (const [key, val] of Object.entries(skills)) {
-        let level = 0;
-        let xp = 0;
-
-        if (typeof val === 'object') {
-            level = val.level;
-            xp = val.xp;
-        } else {
-            level = val;
-        }
-
-        const nextThreshold = level * 50;
-        const pct = Math.min(100, (xp / nextThreshold) * 100);
-
-        const div = document.createElement('div');
-        div.style.background = '#222';
-        div.style.padding = '5px';
-        div.style.borderRadius = '4px';
-        div.style.border = '1px solid #444';
-
-        div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
-                <span style="font-weight:bold; text-transform:capitalize;">${key}</span>
-                <span style="color:#8f8;">Lvl ${level}</span>
-            </div>
-            <div style="background:#000; height:4px; width:100%; border-radius:2px;">
-                <div style="background:#0f0; width:${pct}%; height:100%; border-radius:2px; transition: width 0.3s;"></div>
-            </div>
-            <div style="font-size:0.7em; color:#888; text-align:right;">${xp} / ${nextThreshold} XP</div>
-        `;
-        list.appendChild(div);
-    }
-};
-
-window.equipItem = async function (id) {
-    try {
-        const res = await fetch('/api/inventory/equip', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: id })
-        });
-        const data = await res.json();
-
-        audioSystem.play('equip');
-
-        // State update happens in main loop usually, but we can force it
-        // Or await next fetchState
-        window.fetchState(); // from main.js (global)
-    } catch (e) { console.error(e); }
-};
-
-window.unequipItem = async function (id) {
-    try {
-        const res = await fetch('/api/inventory/unequip', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: id })
-        });
-        const data = await res.json();
-        audioSystem.play('equip');
-        window.fetchState();
-    } catch (e) { console.error(e); }
-};
-
-// --- Shop System ---
-// --- Shop System (Dual Grid + Drag&Drop) ---
-window.openShop = async function (merchantName) {
-    const modal = document.getElementById('shop-modal');
-    // Sanity check: if it was minimized, closing and re-opening might not reset position if we don't clear it.
-    // The draggable logic uses internal closures for restoreX/Y, which are per-element but scoped to the `makeDraggable` call.
-    // We can't access those closures easily. 
-    // However, we can simply force the modal to center screen style here.
-
-    modal.style.top = '10%';
-    modal.style.left = '50%';
-    modal.style.transform = 'translateX(-50%)';
-    modal.style.width = '700px';
-    modal.style.height = '500px';
-
-    // Ensure content is visible (un-minimize)
-    const content = modal.querySelector('.panel-content');
-    if (content) content.style.display = 'flex'; // It uses flex layout now
-    const minBtn = modal.querySelector('.minimize-btn');
-    if (minBtn) minBtn.innerText = 'X'; // Use X as close, or _ if we supported minimize
-
-    const title = document.getElementById('shop-merchant-name');
-    const goldDisplay = document.getElementById('shop-player-gold');
-    const merchantList = document.getElementById('shop-list');
-    const playerList = document.getElementById('player-shop-inv');
-
-    title.innerText = merchantName;
-    if (window.gameState && window.gameState.player) {
-        goldDisplay.innerText = window.gameState.player.gold || 0;
-    }
-
-    merchantList.innerHTML = '<div style="color:#aaa;">Loading...</div>';
-    playerList.innerHTML = '<div style="color:#aaa;">Loading...</div>';
-
-    modal.style.display = 'block';
-
-    try {
-        const res = await fetch('/api/shop/list');
-        const data = await res.json();
-
-        // Render Function for reuse
-        const renderGrid = (container, items, source) => {
-            container.innerHTML = '';
-
-            if (items.length === 0) {
-                container.innerHTML = '<div style="grid-column:1/-1; color:#555; font-style:italic; padding:10px;">Empty</div>';
-                return;
-            }
-
-            items.forEach(item => {
-                const slot = document.createElement('div');
-                slot.draggable = true;
-                slot.className = 'shop-slot';
-                // Inline styles for grid box
-                slot.style.width = '42px';
-                slot.style.height = '42px';
-                slot.style.background = '#1a1a1a';
-                slot.style.border = '1px solid #444';
-                slot.style.borderRadius = '4px';
-                slot.style.display = 'flex';
-                slot.style.alignItems = 'center';
-                slot.style.justifyContent = 'center';
-                slot.style.fontSize = '24px';
-                slot.style.cursor = 'grab';
-                slot.style.position = 'relative';
-
-                // Data
-                const cost = source === 'merchant' ? item.value : Math.max(1, Math.floor((item.value || 0) / 2));
-                const itemIcon = (item.properties && item.properties.icon) ? item.properties.icon : '📦';
-
-                slot.innerHTML = itemIcon;
-
-                // Tooltip
-                slot.title = `${item.name}\n${source === 'merchant' ? 'Buy for ' : 'Sell for '} ${cost}g\n${item.description || ''}`;
-
-                // Drag Events
-                slot.ondragstart = (e) => {
-                    e.dataTransfer.setData("text/plain", JSON.stringify({
-                        source: source,
-                        id: item.id || item.template_id, // Merchant items use template_id logic probably?
-                        cost: cost,
-                        name: item.name
-                    }));
-                    slot.style.opacity = '0.5';
-                };
-
-                slot.ondragend = () => {
-                    slot.style.opacity = '1';
-                };
-
-                // Click fallback
-                slot.onclick = () => {
-                    if (confirm(source === 'merchant' ? `Buy ${item.name} for ${cost}g?` : `Sell ${item.name} for ${cost}g?`)) {
-                        if (source === 'merchant') buyItem(item.id || item.template_id, cost); // logic expects template_id usually
-                        else sellItem(item.id);
-                    }
-                };
-
-                container.appendChild(slot);
-            });
-        };
-
-        // 1. Merchant Items
-        const merchInvIds = data.shops[merchantName] || [];
-        const merchItems = merchInvIds.map(id => {
-            let t = data.items[id];
-            if (t) t.template_id = id; // Ensure ID is passed
-            return t;
-        }).filter(x => x);
-
-        renderGrid(merchantList, merchItems, 'merchant');
-
-        // 2. Player Items
-        // We rely on global gameState
-        const playerItems = window.gameState.player.inventory || [];
-        // Filter out equipped items? Usually yes
-        renderGrid(playerList, playerItems.filter(i => !i.is_equipped), 'player');
-
-
-        // Setup Drop Zones
-        // Drop on Player List = BUY
-        playerList.ondragover = (e) => e.preventDefault(); // Allow drop
-        playerList.ondrop = (e) => {
-            e.preventDefault();
-            const raw = e.dataTransfer.getData("text/plain");
-            if (!raw) return;
-            const d = JSON.parse(raw);
-
-            if (d.source === 'merchant') {
-                buyItem(d.id, d.cost);
-            }
-        };
-
-        // Drop on Merchant List = SELL
-        merchantList.ondragover = (e) => e.preventDefault();
-        merchantList.ondrop = (e) => {
-            e.preventDefault();
-            const raw = e.dataTransfer.getData("text/plain");
-            if (!raw) return;
-            const d = JSON.parse(raw);
-
-            if (d.source === 'player') {
-                sellItem(d.id);
-            }
-        };
-
-
-    } catch (e) {
-        console.error(e);
-        merchantList.innerHTML = 'Error loading shop.';
-    }
-};
-
-window.buyItem = async function (templateId, cost) {
-    // Check Gold First
-    const currentGold = window.gameState.player.gold || 0;
-    if (currentGold < cost) {
-        alert("Not enough gold!");
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/shop/buy', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: templateId })
-        });
-        const data = await res.json();
-
-        // Refresh
-        await window.fetchState();
-        document.getElementById('shop-player-gold').innerText = window.gameState.player.gold;
-
-        // Re-open/Refresh shop visuals?
-        // simple way: just re-call openShop with current name
-        const name = document.getElementById('shop-merchant-name').innerText;
-        window.openShop(name);
-
-        audioSystem.play('coin');
-
-    } catch (e) { console.error(e); }
-};
-
-window.sellItem = async function (itemId) {
-    try {
-        const res = await fetch('/api/shop/sell', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: itemId })
-        });
-        const data = await res.json();
-
-        // Refresh
-        await window.fetchState();
-        document.getElementById('shop-player-gold').innerText = window.gameState.player.gold;
-
-        const name = document.getElementById('shop-merchant-name').innerText;
-        window.openShop(name); // Refresh inventory lists
-
-        audioSystem.play('coin');
-
-    } catch (e) { console.error(e); }
-};
-
-// --- Tab Switching ---
-window.switchCharTab = function (tabName) {
-    audioSystem.play('page');
-    // Buttons
-    document.querySelectorAll('#char-sheet .tab-btn').forEach(b => b.classList.remove('active'));
-    // Content
-    document.querySelectorAll('#char-sheet .tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelectorAll('#char-sheet .tab-content').forEach(c => c.style.display = 'none'); // Ensure hidden
-
-    // Activate
-    const btn = document.querySelector(`#char-sheet .tab-btn[onclick="switchCharTab('${tabName}')"]`);
-    if (btn) btn.classList.add('active');
-
-    const content = document.getElementById(`${tabName}-char-tab`);
-    if (content) {
-        content.classList.add('active');
-        content.style.display = 'block'; // force show
-
-        if (tabName === 'hero') content.style.display = 'flex'; // Hero tab uses flex
-    }
-};
-
-window.switchTab = function (tabName) {
-    document.querySelectorAll('#interaction-panel .tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('#interaction-panel .tab-content').forEach(c => c.classList.remove('active'));
-    document.querySelectorAll('#interaction-panel .tab-content').forEach(c => c.style.display = 'none');
-
-    const btn = document.querySelector(`#interaction-panel .tab-btn[onclick="switchTab('${tabName}')"]`);
-    if (btn) btn.classList.add('active');
-
-    const content = document.getElementById(`${tabName}-tab`);
-    if (content) {
-        content.classList.add('active');
-        content.style.display = 'block';
-    }
-};
-
-window.lootBody = async function (corpseId) {
-    try {
-        const res = await fetch('/api/interact_specific', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: "loot", target_type: "corpse", target_id: corpseId })
-        });
-        const data = await res.json();
-
-        // Check payload type
-        let payload = data.narrative;
-        if (typeof payload === 'object' && payload.type === 'loot_window') {
-            renderLootModal(payload);
-        } else {
-            // Fallback text
-            alert(payload);
-        }
-
-        window.fetchState();
-    } catch (e) { console.error(e); }
-};
-
-window.renderLootModal = function (data) {
-    const list = document.getElementById('loot-list');
-    list.innerHTML = '';
-
-    document.getElementById('loot-title').innerText = "LOOT: " + data.name;
-    document.getElementById('loot-modal').style.display = 'block';
-
-    window.activeLootCorpseId = data.corpse_id;
-
-    if (data.loot.length === 0) {
-        list.innerHTML = '<div style="font-style:italic">Empty...</div>';
-        return;
-    }
-
-    data.loot.forEach(item => {
-        const div = document.createElement('div');
-        div.style.padding = '5px';
-        div.style.borderBottom = '1px solid #444';
-        div.style.display = 'flex';
-        div.style.justifyContent = 'space-between';
-        div.style.alignItems = 'center';
-
-        div.innerHTML = `
-            <div style="display:flex; align-items:center;">
-                <span style="font-size:20px; margin-right:10px;">${item.icon || '📦'}</span>
-                <span>${item.name}</span>
-            </div>
-            <button onclick="takeLoot('${item.id}')" style="cursor:pointer; background:#522; border:1px solid #844; color:#fcc; padding:2px 8px;">Take</button>
-        `;
-        list.appendChild(div);
-    });
-};
-
-window.takeLoot = async function (lootId) {
-    try {
-        const res = await fetch('/api/loot/take', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ corpse_id: window.activeLootCorpseId, loot_id: lootId })
-        });
-        const data = await res.json();
-
-        // Popup Notification for Loot
-        if (data.message && !data.message.includes("Nothing left") && !data.message.includes("removed")) {
-            showTurnNotification("ACQUIRED", data.message, 1500, "rgba(0, 100, 0, 0.8)");
-            if (window.audioSystem) window.audioSystem.play('coin');
-        }
-
-        // If corpse is gone (empty), close modal. Otherwise refresh it.
-        if (data.message === "Corpse removed." || data.message === "Nothing left.") {
-            document.getElementById('loot-modal').style.display = 'none';
-            window.fetchState();
-        } else {
-            lootBody(window.activeLootCorpseId);
-        }
-
-    } catch (e) { console.error(e); }
-};
-
-window.useItem = async function (id) {
-    try {
-        const res = await fetch('/api/inventory/use', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: id })
-        });
-        const data = await res.json();
-
-        alert(data.message);
-        window.fetchState();
-    } catch (e) { console.error(e); }
-};
-
-// --- Crafting System ---
-window.refreshCraftingList = async function () {
-    const list = document.getElementById('crafting-list');
-    if (!list) return;
-    list.innerHTML = '<div style="padding:10px; color:#aaa;">Loading recipes...</div>';
-    try {
-        const res = await fetch('/api/craft/list');
-        const recipes = await res.json();
-        list.innerHTML = '';
-
-        if (Object.keys(recipes).length === 0) {
-            list.innerHTML = '<div style="padding:10px;">No recipes known.</div>';
-            return;
-        }
-
-        for (const [key, r] of Object.entries(recipes)) {
-            let ingredients = [];
-            for (let [k, v] of Object.entries(r.ingredients)) ingredients.push(`${v}x ${k}`);
-
-            const div = document.createElement('div');
-            div.style.background = '#222';
-            div.style.padding = '8px';
-            div.style.marginBottom = '4px';
-            div.style.border = '1px solid #444';
-
-            div.innerHTML = `
-                <div style="color:#d4af37; font-weight:bold;">${r.name}</div>
-                <div style="font-size:0.8em; color:#aaa; margin-bottom:4px;">Needs: ${ingredients.join(', ')}</div>
-                <button onclick="craftItem('${key}')" style="background:#400; color:#faa; border:1px solid #800; width:100%; cursor:pointer; padding:4px;">Craft</button>
-             `;
-            list.appendChild(div);
-        }
-    } catch (e) { console.error(e); }
-};
-
-window.craftItem = async function (id) {
-    try {
-        const res = await fetch('/api/craft/make', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ recipe_id: id })
-        });
-        const d = await res.json();
-        alert(d.message);
-        window.fetchState();
-    } catch (e) { console.error(e); }
-};
-
-// Overwrite switchCharTab to support crafting
-window.switchCharTab = function (tabName) {
-    const tabs = ['hero', 'equipment', 'skills', 'crafting'];
-    tabs.forEach(t => {
-        const pane = document.getElementById(`${t}-char-tab`);
-        if (pane) {
-            const isActive = (t === tabName);
-            pane.classList.toggle('active', isActive);
-            pane.style.display = isActive ? 'block' : 'none';
-        }
-    });
-
-    // Update Button Styles using querySelector
-    // We assume buttons are siblings in .tab-header. 
-    // This is purely visual.
-    const btns = document.querySelectorAll('#char-sheet .tab-btn');
-    btns.forEach(btn => {
-        if (btn.innerText.toLowerCase().includes(tabName.substring(0, 4))) {
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('active');
-        }
-    });
-
-    if (tabName === 'crafting') {
-        window.refreshCraftingList();
-    }
-};
-
-window.updateRightPanelItems = function (player) {
-    const list = document.getElementById('items-list');
-    if (!list) return;
-
-    list.innerHTML = '';
-
-    // Icon Mapping for Box Display
-    const iconMap = {
-        'Training Sword': "⚔️", 'Iron Sword': "⚔️", 'Steel Sword': "⚔️", 'Rusty Dagger': "🗡️", 'Steel Dagger': "🗡️",
-        'Cloth Tunic': "👕", 'Leather Armor': "👕", 'Chainmail': "⛓️",
-        'Leather Helmet': "🧢", 'Iron Helmet': "🪖",
-        'Leather Boots': "👢",
-        'Healing Potion': "🧪",
-        'Iron Ore': "🪨",
-        'Mystic Herb': "🌿",
-        'Gold': "💰",
-        'Wooden Shield': "🛡️", 'Iron Shield': "🛡️",
-        'Iron Key': "🔑",
-        'Ring': "💍",
-        'Leather Gloves': "🧤"
-    };
-
-    // 1. Gold Display
-    let gold = player.gold || 0;
-    const goldDiv = document.createElement('div');
-    goldDiv.className = 'item-entry'; // Reuse class for styling if needed, or override
-    goldDiv.style.color = '#ffd700';
-    goldDiv.style.fontWeight = 'bold';
-    goldDiv.style.borderBottom = '1px solid #444';
-    goldDiv.style.marginBottom = '10px';
-    goldDiv.style.paddingBottom = '5px';
-    goldDiv.style.background = 'none'; // Clear default
-    goldDiv.style.border = 'none';
-    goldDiv.style.borderBottom = '1px solid #444';
-    goldDiv.innerText = `Gold: ${gold}g`;
-    list.appendChild(goldDiv);
-
-    // 2. Items Grid Container
-    const grid = document.createElement('div');
-    grid.style.display = 'grid';
-    grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(40px, 1fr))';
-    grid.style.gap = '8px';
-
-    const items = player.inventory || [];
-
-    if (items.length === 0) {
-        grid.innerHTML = '<div style="grid-column: 1/-1; color:#666; font-style:italic;">Bag is empty.</div>';
-    } else {
-        items.forEach(item => {
-            const slot = document.createElement('div');
-            // Style Box
-            slot.style.width = '42px';
-            slot.style.height = '42px';
-            slot.style.background = '#1a1a1a';
-            slot.style.border = '1px solid #444';
-            slot.style.borderRadius = '6px';
-            slot.style.position = 'relative';
-            slot.style.cursor = 'help'; // Shows it has info
-            slot.style.display = 'flex';
-            slot.style.alignItems = 'center';
-            slot.style.justifyContent = 'center';
-            slot.style.fontSize = '24px';
-            slot.style.transition = 'all 0.1s';
-
-            // Hover Effect
-            slot.onmouseover = () => { slot.style.borderColor = '#888'; slot.style.background = '#222'; };
-            slot.onmouseout = () => {
-                slot.style.borderColor = item.is_equipped ? '#0f0' : '#444';
-                slot.style.background = '#1a1a1a';
-            };
-
-            // Highlight equipped
-            if (item.is_equipped) {
-                slot.style.borderColor = '#0f0';
-                slot.style.boxShadow = '0 0 5px rgba(0, 255, 0, 0.3)';
-            }
-
-            // Icon
-            let iconStr = "📦";
-            if (item.properties && item.properties.icon) iconStr = item.properties.icon;
-            else if (iconMap[item.name]) iconStr = iconMap[item.name];
-
-            slot.innerText = iconStr;
-
-            // Tooltip (Description on Hover)
-            let desc = `${item.name}`;
-            if (item.is_equipped) desc += " (Equipped)";
-            if (item.quantity > 1) desc += ` x${item.quantity}`;
-
-            // Add Stats if available
-            const props = item.properties || {};
-            if (props.damage) desc += `\nDamage: ${props.damage}`;
-            if (props.defense) desc += `\nDefense: +${props.defense}`;
-            if (props.heal) desc += `\nHeals: ${props.heal}`;
-            if (item.item_type) desc += `\nType: ${item.item_type}`;
-
-            slot.title = desc;
-
-            // Quantity Badge
-            if (item.quantity > 1) {
-                const badge = document.createElement('span');
-                badge.style.position = 'absolute';
-                badge.style.bottom = '1px';
-                badge.style.right = '3px';
-                badge.style.fontSize = '10px';
-                badge.style.color = '#fff';
-                badge.style.fontWeight = 'bold';
-                badge.style.textShadow = '1px 1px 0 #000';
-                badge.innerText = item.quantity;
-                slot.appendChild(badge);
-            }
-
-            // Optional: Click to equip/use?
-            // The user just asked for display, but interaction makes sense.
-            slot.onclick = () => {
-                if (confirm(`Interact with ${item.name}?`)) {
-                    if (item.is_equipped) unequipItem(item.id);
-                    else if (item.slot) equipItem(item.id);
-                    else if (item.item_type === 'consumable') useItem(item.id);
-                }
-            };
-
-            grid.appendChild(slot);
-        });
-    }
-
-    list.appendChild(grid);
-};
 
 window.interactObject = async function (id) {
     try {
@@ -1518,6 +524,10 @@ window.interactObject = async function (id) {
 
 window.performAction = async function (actionName) {
     try {
+        if (actionName === 'investigate' && window.updateLog) {
+            window.updateLog("<span style='color:#aaa'>Investigating area...</span>");
+        }
+
         const res = await fetch('/api/action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1563,6 +573,7 @@ window.updateLog = function (msg) {
 };
 
 // --- Stats Update ---
+// --- Stats Update ---
 window.updateHeroStats = function (player) {
     if (!player) return;
 
@@ -1570,22 +581,102 @@ window.updateHeroStats = function (player) {
     const hpEl = document.getElementById('stat-hp');
     if (hpEl) {
         hpEl.innerText = `${player.hp}/${player.max_hp}`;
-        // Color coding
         if (player.hp <= player.max_hp * 0.3) hpEl.style.color = '#f55';
         else if (player.hp <= player.max_hp * 0.7) hpEl.style.color = '#fa0';
         else hpEl.style.color = '#0f0';
     }
 
+    // Level & XP (Inject if missing)
+    let lvlEl = document.getElementById('stat-lvl');
+    if (!lvlEl) {
+        // Add row to table if not exists
+        const tbody = document.getElementById('stat-body');
+        if (tbody) {
+            const row = document.createElement('tr');
+            row.innerHTML = `<td>LVL</td><td id="stat-lvl" style="color:#d4af37; font-weight:bold;">1</td><td>Level (XP: <span id="stat-xp">0</span>)</td>`;
+            tbody.insertBefore(row, tbody.firstChild);
+            lvlEl = document.getElementById('stat-lvl');
+        }
+    }
+    if (lvlEl) {
+        lvlEl.innerText = player.level || 1;
+        const xpEl = document.getElementById('stat-xp');
+        if (xpEl) xpEl.innerText = player.xp || 0;
+    }
+
     // Core Stats
     const stats = player.stats || {};
+    const points = stats.unspent_points || 0;
+
+    // Update Header with Points
+    const h3 = document.querySelector('.stat-block h3');
+    if (h3) {
+        if (points > 0) {
+            h3.innerHTML = `Stats <span style="color:#ff0; font-size:0.8em;">(Points: ${points})</span>`;
+        } else {
+            h3.innerText = "Stats";
+        }
+    }
+
     ['str', 'dex', 'con', 'int', 'wis', 'cha'].forEach(key => {
         const el = document.getElementById(`stat-${key}`);
         if (el) {
-            // Backend sends lowercase keys usually, but let's be safe
             const val = stats[key] !== undefined ? stats[key] : (stats[key.toUpperCase()] || 0);
-            el.innerText = val;
+
+            // If points available, show upgrade button
+            if (points > 0) {
+                el.innerHTML = `
+                    ${val} 
+                    <button onclick="upgradeStat('${key}')" 
+                        style="background:#0f0; color:#000; padding:0 4px; border:none; cursor:pointer; font-weight:bold; margin-left:5px; border-radius:3px;">
+                        +
+                    </button>
+                `;
+            } else {
+                el.innerText = val;
+            }
         }
     });
 };
 
+window.upgradeStat = async function (statName) {
+    try {
+        const res = await fetch('/api/stats/upgrade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stat: statName })
+        });
+        const data = await res.json();
+
+        // Visual Feedback
+        const el = document.getElementById(`stat-${statName}`);
+        if (el) el.style.color = "#0f0";
+        setTimeout(() => { if (el) el.style.color = ""; }, 500);
+
+        // Refresh
+        window.fetchState();
+
+        // Show message
+        if (data.message) {
+            // Optional: log or toast
+            console.log(data.message);
+        }
+    } catch (e) { console.error(e); }
+};
+
 console.log("UI.JS Ready v26");
+window.logMessage = window.updateLog;
+
+window.performTileAction = async function (action, targetId) {
+    // targetId is "x,y,z"
+    try {
+        const res = await fetch('/api/interact_specific', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, target_type: 'tile', target_id: targetId })
+        });
+        const data = await res.json();
+        if (data.narrative && window.updateLog) window.updateLog(data.narrative);
+        window.fetchState();
+    } catch (e) { console.error(e); }
+};

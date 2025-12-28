@@ -197,6 +197,12 @@ class LevelBuilder:
                 t_type = "grass" # Explicitly grass type for frontend rendering
                 if abs(x) == 20 or abs(y) == 20: 
                     t_type = "wall" # Town border
+                    
+                    # Create Openings
+                    # North Gate
+                    if y == -20 and abs(x) < 3:
+                        t_type = "floor" # Road
+                
                 tiles[(x,y)] = t_type
 
         # 2. Structures
@@ -289,6 +295,150 @@ class LevelBuilder:
         # Gareth -> Smithy (11, 8)  <-- Moved next to Forge (12,9)
         # Seraphina -> Alchemist (-11, 9)
         # This is handled in npcs.json primarily, but if I modified it here I'd need to update json.
-        # For now, current JSON coords might be slightly off (Elder is at 2,2 which is now grass).
-        # JSON needs update to match these new building locations.
+        # Update NPC Locations to match new interiors
+        # ...
+        
+        # Spawn NPCs from JSON
+        self._load_npcs_from_file(z)
 
+    def generate_forest(self, z):
+        """Generate the North Forest (Z=2)."""
+        print(f"Generator: Building North Forest at Z={z}...")
+        
+        # 1. Base Grass (Huge Area: 60x60)
+        width, height = 60, 60
+        tiles = {}
+        
+        import random
+        from .rules import roll_dice
+        
+        for x in range(-width//2, width//2):
+            for y in range(-height//2, height//2):
+                tiles[(x,y)] = "grass"
+                
+                # Heavy Forest Density (Updated: Reduced by 25% -> ~0.26)
+                if random.random() < 0.26:
+                    tiles[(x,y)] = "tree"
+
+                # Ore Deposits (Iron)
+                elif random.random() < 0.02: # 2% chance for free rock
+                    tiles[(x,y)] = "rock"
+
+                # Herb Deposits (Mystic Herbs)
+                elif random.random() < 0.03: # 3% chance
+                    tiles[(x,y)] = "herb"
+
+        # 2. The Lake (North East)
+        # Circle at (15, -15) radius 8
+        cx, cy = 15, -15
+        radius = 8
+        for x in range(cx - radius, cx + radius):
+            for y in range(cy - radius, cy + radius):
+                if (x-cx)**2 + (y-cy)**2 <= radius**2:
+                    tiles[(x,y)] = "water"
+
+        # 3. Main Road (South to North)
+        # From (0, 30) aka South Entrance to (0, -25)
+        for y in range(-25, 30):
+            for x in range(-2, 3):
+                tiles[(x,y)] = "floor" # Dirt path
+                
+        # Town Gate (South Exit)
+        tiles[(0, 29)] = "door" 
+        tiles[(-1, 29)] = "wall"
+        tiles[(1, 29)] = "wall"
+        
+        # 4. Dungeon Entrances (Elemental)
+        
+        # Helper for themed entrance
+        def place_entrance(cx, cy, tile_type, decor, name):
+            # 3x3 Mountain Structure with door at bottom-center (cx, cy)
+            # Grid relative to Door (0,0):
+            # Top Row: y-2
+            # Mid Row: y-1
+            # Bot Row: y (Door)
+            
+            structure = [
+                # Top Row
+                (-1, -2, "mtn_tl"), (0, -2, "mtn_tm"), (1, -2, "mtn_tr"),
+                # Mid Row
+                (-1, -1, "mtn_ml"), (0, -1, "mtn_mm"), (1, -1, "mtn_mr"),
+                # Bot Row
+                (-1, 0, "mtn_bl"), (0, 0, "door_stone"), (1, 0, "mtn_br")
+            ]
+            
+            for (dx, dy, code) in structure:
+                tiles[(cx+dx, cy+dy)] = code
+                
+            # Surround with decor (slightly wider radius to blend)
+            for dx in range(-2, 3):
+                for dy in range(-3, 2):
+                    # Skip the structure itself
+                    if abs(dx) <= 1 and -2 <= dy <= 0: continue
+                    
+                    if (cx+dx, cy+dy) not in tiles:
+                         tiles[(cx+dx, cy+dy)] = decor
+
+        # Fire Dungeon (South West - Volcanic Patch)
+        place_entrance(-15, 15, "door", "lava", "Fire Dungeon")
+        
+        # Ice Dungeon (North West - Frozen Patch)
+        place_entrance(-15, -20, "door", "ice", "Ice Dungeon")
+        
+        # Earth Dungeon (North East - Rocky/Muddy)
+        place_entrance(20, -20, "door", "rock", "Earth Dungeon")
+        
+        # Air Dungeon (South East - Cloudy/Void?)
+        place_entrance(20, 15, "door", "void", "Air Dungeon")
+        
+        # 5. Commit to DB
+        game_map = []
+        for (pos, t_type) in tiles.items():
+            game_map.append(MapTile(x=pos[0], y=pos[1], z=z, tile_type=t_type, is_visited=True)) # Forest is open, auto-visited? Or Fog of War?
+            # Let's keep it Fog of War: is_visited=False
+            # But the path should be visible?
+        
+        # Auto-visit the starting path for convenience
+        for m in game_map:
+            if m.tile_type == "floor": 
+                m.is_visited = True
+            else:
+                m.is_visited = False
+            self.session.add(m)
+            
+        # 6. Spawns (Wolves, Bears)
+        beasts = ["Dire Wolf", "Forest Bear", "Goblin Scout"]
+        occupied_spawns = set()
+        
+        # Increased by 25%: 15 -> ~19
+        count = 0
+        attempts = 0
+        while count < 19 and attempts < 200:
+             attempts += 1
+             bx = random.randint(-25, 25)
+             by = random.randint(-25, 25)
+             if (bx, by) in occupied_spawns: continue
+
+             # Valid spawn logic: Grass or Floor (road ambushes)
+             t_type = tiles.get((bx, by))
+             if t_type in ["grass", "floor"]:
+                 occupied_spawns.add((bx, by))
+                 name = random.choice(beasts)
+                 hp = 10 if "Goblin" in name else 25
+                 self.session.add(Monster(name=name, hp_current=hp, hp_max=hp, x=bx, y=by, z=z, state="alive"))
+                 count += 1
+
+        # 7. Elemental Bosses (Guardians)
+        bosses = [
+            {"name": "Fire Guardian", "x": -15, "y": 15, "hp": 100},
+            {"name": "Ice Guardian", "x": -15, "y": -20, "hp": 100},
+            {"name": "Earth Guardian", "x": 20, "y": -20, "hp": 120},
+            {"name": "Air Guardian", "x": 20, "y": 15, "hp": 80}
+        ]
+        
+        for b in bosses:
+            self.session.add(Monster(name=b["name"], hp_current=b["hp"], hp_max=b["hp"], 
+                                     x=b["x"], y=b["y"], z=z, state="alive", 
+                                     stats={"str": 14, "dex": 12, "int": 10})) # Boost str for bosses
+
+        self.session.commit()

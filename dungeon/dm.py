@@ -1,9 +1,11 @@
-from .database import get_session, Player, MapTile, Monster, InventoryItem, NPC, init_db, WorldObject
+from .database import get_session, Player, MapTile, Monster, InventoryItem, NPC, init_db, WorldObject, CombatEncounter
 from .rules import roll_dice, get_skill_level, award_skill_xp
 from .combat import CombatSystem
 from .generator import LevelBuilder
 from .dialogue import DialogueSystem
 from .inventory_system import InventorySystem
+from .world_sim import WorldSimulation
+from .movement import MovementSystem
 from sqlalchemy.orm.attributes import flag_modified
 import threading
 import queue
@@ -20,6 +22,8 @@ class DungeonMaster:
         self.dialogue = DialogueSystem(self)
         from .interactions import InteractionManager
         self.interactions = InteractionManager(self)
+        self.world_sim = WorldSimulation(self)
+        self.movement = MovementSystem(self)
         
         self._initialize_world()
 
@@ -61,31 +65,43 @@ class DungeonMaster:
                 name="Generic Hero", 
                 hp_current=20, hp_max=20,
                 stats={"str": 14, "dex": 14, "con": 14, "int": 10, "wis": 10, "cha": 10},
-                x=0, y=0, z=0
+                x=0, y=0, z=1, # DEBUG: Start in Town
+                quest_state={"active_quests": []}
             )
             # Add default gear
             self.session.add(InventoryItem(name="Training Sword", slot="main_hand", is_equipped=True, player=self.player))
             self.session.add(InventoryItem(name="Cloth Tunic", slot="chest", is_equipped=True, player=self.player))
             self.session.add(self.player)
             
-            # --- Tutorial Dungeon Generation ---
+            # --- Generate Maps ---
             builder = LevelBuilder(self.session)
             builder.generate_tutorial_dungeon(self.player)
+            builder.generate_town(1) # Force Generate Town
             
             # Reveal Starting Area
             self.update_visited(self.player.x, self.player.y, self.player.z)
+            
+            # --- DEBUG: Auto-Rescue NPCs for Testing ---
+            # Move everyone to town immediately
+            gareth = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
+            if gareth: gareth.x, gareth.y, gareth.z = 10, 8, 1
+            
+            seraphina = self.session.query(NPC).filter(NPC.name.like("%Seraphina%")).first()
+            if seraphina: seraphina.x, seraphina.y, seraphina.z = -11, 9, 1
+            
+            elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
+            if elara: elara.x, elara.y, elara.z = -11, 8, 1 # Home
+            
+            elder = self.session.query(NPC).filter(NPC.name.like("%Elder%")).first()
+            if elder: elder.x, elder.y, elder.z = 0, 7, 1 # Town Hall
+            
+            self.session.commit()
             
             # --- Spawn Town NPCs ---
             # --- Spawn Town NPCs ---
             # LEGACY FIX: Check for "Gareth Ironhand" specifically.
             # If he exists (even in dungeon), DO NOT spawn the town placeholder.
             gareth_exists = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
-            if not gareth_exists:
-                # Only spawn if NO Gareth exists at all (e.g. clean slate + no dungeon gen yet)
-                # But usually Generator runs first. 
-                # If we are here, and Generator ran, "Gareth Ironhand" should be in DB at Z=0.
-                pass 
-            
             # Clean up duplicates (Migration)
             # If we have "Gareth" (town) AND "Gareth Ironhand" (dungeon), delete "Gareth".
             generic_gareth = self.session.query(NPC).filter_by(name="Gareth").first()
@@ -96,13 +112,8 @@ class DungeonMaster:
                 self.session.delete(generic_gareth)
                 self.session.commit()
             
-            if not self.session.query(NPC).filter_by(name="Seraphina").first():
-                self.session.add(NPC(
-                    name="Seraphina",
-                    persona_prompt="You are Seraphina, a wise alchemist. You sell potions and magical supplies.",
-                    location="Alchemist",
-                    x=-8, y=9, z=1
-                ))
+            # Note: We rely on Generator to load Seraphina/Elder now.
+            # No manual add here.
             
             self.session.commit()
 
@@ -136,14 +147,11 @@ class DungeonMaster:
         return [self.player.x, self.player.y, self.player.z]
 
     def move_player(self, dx, dy):
-        """Clean robust movement logic."""
-        # 0. Check Combat
-        # Use CombatEncounter check now
-        from .database import CombatEncounter
-        active_enc = self.session.query(CombatEncounter).filter_by(is_active=True).first()
-        if active_enc:
-             return [self.player.x, self.player.y, self.player.z], "Combat is active! You must fight or flee."
+        """Clean robust movement logic (Delegated)."""
+        return self.movement.move_player(dx, dy)
 
+    def _dead_move_player(self, dx, dy):
+        """Legacy code to be removed."""
         # 1. Calculate Target
         new_x = self.player.x + dx
         new_y = self.player.y + dy
@@ -164,6 +172,14 @@ class DungeonMaster:
                  self.session.commit()
                  return [self.player.x, self.player.y, self.player.z], "You bump into a dark wall."
             # Town bounds handled by generation usually
+            if new_z == 1:
+                # North Gate check
+                # Town is approx -20 to 20 range.
+                if new_y < -20: 
+                    # Transition to North Forest (Z=2)
+                    self.teleport_player(0, 29, 2) # South end of Forest
+                    return [0, 29, 2], "*** You enter the North Forest ***"
+
             return [self.player.x, self.player.y, self.player.z], "The path is blocked."
 
         # Resource Gathering
@@ -220,15 +236,75 @@ class DungeonMaster:
 
         # 3. Check Door Transition (Tile Event)
         if tile.tile_type == "door":
-             # Hacky Secret Door check
-             print("DM: Door interaction")
-             if new_z == 0 and new_x == 2 and new_y == 30:
-                 self.teleport_player(0, 0, 1) # Town
-                 return [0, 0, 1], "*** You emerge into Oakhaven! ***"
+            # Hacky Secret Door check (Dungeon -> Town)
+            print("DM: Door interaction")
+            if new_z == 0 and abs(new_x) <= 2 and new_y >= 28: # Dungeon Exit Range
+                self.teleport_player(0, 0, 1) # Town
+                
+                # --- TRIGGER: Elara Returns Home ---
+                # 1. Find Elara (likely following us or just in DB at Z=0)
+                elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
+                if elara:
+                    # Teleport close to entrance
+                    elara.x = 1
+                    elara.y = 1
+                    elara.z = 1
+                    
+                    # Set Schedule (Alchemist Shop Interior: -11, 8)
+                    qs = elara.quest_state or {}
+                    qs["status"] = "walking_home"
+                    qs["target_x"] = -11
+                    qs["target_y"] = 8
+                    elara.quest_state = qs
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(elara, "quest_state")
+                    self.session.add(elara)
+                
+                # --- TRIGGER: Auto-Rescue Others ---
+                # If player beat the dungeon, others escape too
+                
+                # Gareth -> Blacksmith (10, 8)
+                gareth = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
+                if gareth and gareth.z == 0:
+                    gareth.x, gareth.y, gareth.z = 1, 0, 1 # Start at town square
+                    qs = gareth.quest_state or {}
+                    qs["status"] = "walking_home"
+                    qs["target_x"] = 10
+                    qs["target_y"] = 8
+                    gareth.quest_state = qs
+                    flag_modified(gareth, "quest_state")
+                    self.session.add(gareth)
+
+                # Seraphina -> Alchemist (-11, 9)
+                seraphina = self.session.query(NPC).filter(NPC.name.like("%Seraphina%")).first()
+                if seraphina and seraphina.z == 0:
+                    seraphina.x, seraphina.y, seraphina.z = -1, 0, 1 # Start at town square
+                    qs = seraphina.quest_state or {}
+                    qs["status"] = "walking_home"
+                    qs["target_x"] = -11
+                    qs["target_y"] = 9
+                    seraphina.quest_state = qs
+                    flag_modified(seraphina, "quest_state")
+                    self.session.add(seraphina)
+
+                self.session.commit()
+                return [0, 0, 1], "*** You emerge into Oakhaven! ***"
              
-             # Normal door (open it?)
-             tile.tile_type = "open_door" # Visual change?
-             # Treat as floor for now
+            # Normal door (open it?)
+            tile.tile_type = "open_door" # Visual change?
+            # Treat as floor for now
+        
+        # 3b. Check Zone Transitions (Edges)
+        # Forest (Z=2) -> Town (Z=1) : South Edge (y > 28)
+        if new_z == 2 and new_y >= 29:
+             self.teleport_player(0, -18, 1) # North Gate of Town
+             return [0, -18, 1], "You travel south back to Oakhaven."
+             
+        # Town (Z=1) -> Forest (Z=2) : North Edge (y < -20)
+        # (Assuming town map allows walking north)
+        if new_z == 1 and new_y <= -19:
+             self.teleport_player(0, 28, 2) # South Road of Forest
+             return [0, 28, 2], "You head north into the deep forest."
         
         # 4. Check Monsters (Combat Trigger)
         enemy = self.session.query(Monster).filter_by(x=new_x, y=new_y, z=new_z, is_alive=True).first()
@@ -242,13 +318,14 @@ class DungeonMaster:
 
         if self.combat.is_active():
             # Combat Movement Logic
-            # 1. Check Turn
+            # 1. Check Turn & Moves
             encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
             if not encounter:
-                 # Should detect active via self.combat, but double check
                  pass
             elif encounter.turn_order[encounter.current_turn_index]["type"] != "player":
                  return [self.player.x, self.player.y, self.player.z], "<b>It is not your turn!</b>"
+            elif encounter.moves_left <= 0:
+                 return [self.player.x, self.player.y, self.player.z], "No movement remaining!"
             
             # 2. Update Position (We know it's valid/empty from checks above)
             self.player.x = new_x
@@ -256,13 +333,12 @@ class DungeonMaster:
             self.player.z = new_z
             self.update_visited(new_x, new_y, new_z) # Fog of war updates
             
-            # 3. Consume Turn
-            res = self.combat.player_action("move")
+            # 3. Decrement Counter (via combat)
+            res = self.combat.player_action("move") # returns {events: []}
             self.session.commit()
             
-            # We return the new pos, but also maybe a narrative from combat?
-            # Main.js handles narrative in logs.
-            return [new_x, new_y, new_z], "You move."
+            # Return events so frontend can play them (Enemy AI turns - actually no, enemy turns happen on End Phase now)
+            return [new_x, new_y, new_z], res # res has simple "Moved" message usually
 
         # 5. Check NPCs (Blocking? Or Chat Trigger?)
         npc = self.session.query(NPC).filter_by(x=new_x, y=new_y, z=new_z).first()
@@ -304,7 +380,30 @@ class DungeonMaster:
         self.player.x = new_x
         self.player.y = new_y
         
+        # --- NPC AMBIENT MOVEMENT ---
+        try:
+             self.world_sim.process_npc_schedules()
+             
+             # --- MONSTER ROAMING & AGGRO ---
+             if new_z != 1: # Not in Safe Town
+                env_msg = self.world_sim.process_environment_turn()
+                if env_msg: 
+                    pass
+        except Exception as e:
+             print(f"Error processing NPCs/Env: {e}")
+        
         self.session.commit() # Commit positions so NPC updates see new player pos
+        self.update_visited(new_x, new_y, new_z)
+        
+        narrative = "You move forward."
+        if new_z == 2: narrative = "You are wandering the North Forest."
+        if new_z == 0: narrative = "You step through the dungeon."
+        
+        # Check active combat again in case environment turn started it
+        if self.combat.is_active():
+            narrative = "Ambushed! Combat Started."
+            # Retrieve initial combat events to show
+            return [new_x, new_y, new_z], narrative
 
         # --- NPC AI (Followers & Returning Home) ---
         npcs = self.session.query(NPC).filter_by(z=old_z).all()
@@ -382,7 +481,10 @@ class DungeonMaster:
                 elif dx == -edx and dy == -edy:
                     desc = f"Leaving {info['name']}..."
                 else:
-                    desc = f"Atthe entrance of {info['name']}." # Generic standing
+                    desc = f"At the entrance of {info['name']}." # Generic standing
+        
+        elif new_z == 2:
+             desc = "You are wandering the North Forest."
                     
         # Check for proximity events (Greetings)
         # Check adjacent tiles (including diagonals? No, usually Manhattan or Chebyshev 1)
@@ -417,7 +519,12 @@ class DungeonMaster:
         
         return [new_x, new_y, new_z], desc
 
+        return [new_x, new_y, new_z], desc
+
     def update_visited(self, cx, cy, cz):
+        return self.movement.update_visited(cx, cy, cz)
+
+    def _dead_update_visited_legacy(self, cx, cy, cz):
         tiles = self.session.query(MapTile).filter(
             MapTile.x.between(cx-2, cx+2),
             MapTile.y.between(cy-2, cy+2),
@@ -498,6 +605,9 @@ class DungeonMaster:
             
             return "Dungeon Tunnels"
 
+        elif z == 2:
+            return "North Forest"
+
         return None
 
     def investigate_room(self):
@@ -516,24 +626,67 @@ class DungeonMaster:
         
         found = []
         
-        # 1. Scan Tiles (Radius 3)
-        tiles = self.session.query(MapTile).filter(
-            MapTile.x.between(x-3, x+3),
-            MapTile.y.between(y-3, y+3),
+        # 1. Scan Tiles - VISIBILITY FLOOD FILL (Radius 6)
+        # Instead of simple box, we do a BFS/FloodFill that stops at walls to simulate Line of Sight
+        
+        revealed_count = 0
+        queue_pos = [(x, y)]
+        visited_bfs = set([(x, y)])
+        max_dist = 6
+        
+        # We need to fetch the local map for efficient checking
+        local_tiles = self.session.query(MapTile).filter(
+            MapTile.x.between(x-6, x+6),
+            MapTile.y.between(y-6, y+6),
             MapTile.z == z
         ).all()
         
-        for t in tiles:
-            md = t.meta_data or {}
-            if md.get("hidden"):
-                dc = md.get("dc", 15) # Default DC 15
-                if roll >= dc:
-                    # REVEAL!
-                    md["hidden"] = False
-                    md["discovered"] = True
-                    t.meta_data = md
-                    flag_modified(t, "meta_data")
-                    found.append(f"Hidden {md.get('interact_name', 'Feature')}")
+        # Convert to dict for fast lookup
+        tile_map = {(t.x, t.y): t for t in local_tiles}
+        
+        idx = 0
+        while idx < len(queue_pos):
+            cx, cy = queue_pos[idx]
+            idx += 1
+            
+            # Check distance
+            dist = max(abs(cx - x), abs(cy - y))
+            if dist > max_dist: continue
+            
+            # Reveal this tile
+            if (cx, cy) in tile_map:
+                t = tile_map[(cx, cy)]
+                
+                # REVEAL FOG OF WAR
+                if not t.is_visited:
+                    t.is_visited = True
+                    revealed_count += 1
+                
+                # REVEAL HIDDEN SECRETS (Check Roll)
+                md = t.meta_data or {}
+                if md.get("hidden"):
+                    dc = md.get("dc", 15)
+                    if roll >= dc:
+                        md["hidden"] = False
+                        md["discovered"] = True
+                        t.meta_data = md
+                        flag_modified(t, "meta_data")
+                        found.append(f"Hidden {md.get('interact_name', 'Feature')}")
+
+                # PROPAGATE?
+                # Stop at walls/doors (Vision blockers)
+                if t.tile_type in ["wall", "wall_grey", "wall_house", "void", "door"]:
+                     continue # Don't look past walls
+                
+                # Add neighbors
+                for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+                    nx, ny = cx + dx, cy + dy
+                    if (nx, ny) not in visited_bfs:
+                        visited_bfs.add((nx, ny))
+                        queue_pos.append((nx, ny))
+            else:
+                # Void/Unmapped -> treat as wall, stop
+                pass
 
         # 2. Scan Objects
         objs = self.session.query(WorldObject).filter_by(z=z).all()
@@ -565,6 +718,8 @@ class DungeonMaster:
         narrative = f"You carefully investigate the {room_name}. (Rolled {roll})"
         if found:
             narrative += f"<br><span style='color:#55ff55'>You revealed: {', '.join(found)}!</span>"
+        elif revealed_count > 0:
+             narrative += f"<br>You map out more of the area ({revealed_count} tiles)."
         else:
             narrative += "<br>You find nothing hidden."
             
@@ -583,6 +738,16 @@ class DungeonMaster:
         return self._generate_description(self.player.x, self.player.y, self.player.z)
 
     def get_state_dict(self):
+        try:
+             return self._get_state_dict_impl()
+        except Exception as e:
+             self.session.rollback() # CRITICAL: Reset session on error!
+             import traceback
+             print("CRITICAL ERROR IN GET_STATE:")
+             traceback.print_exc()
+             return { "error": str(e) }
+
+    def _get_state_dict_impl(self):
         """Return a JSON-serializable state for the frontend."""
         map_data = {}
         px, py, pz = self.player.x, self.player.y, self.player.z
@@ -597,7 +762,12 @@ class DungeonMaster:
         map_data = {f"{t.x},{t.y},{t.z}": t.tile_type for t in visited_tiles}
         
         # Enemies
-        monsters = self.session.query(Monster).filter_by(is_alive=True, z=pz).all()
+        try:
+            monsters = self.session.query(Monster).filter_by(is_alive=True, z=pz).all()
+        except:
+             self.session.rollback()
+             monsters = self.session.query(Monster).filter_by(is_alive=True, z=pz).all()
+             
         enemy_list = []
         for m in monsters:
             if m.state == "combat":
@@ -631,12 +801,38 @@ class DungeonMaster:
         
         if active_enc:
             current_actor = active_enc.turn_order[active_enc.current_turn_index]
-            combat_state = {
-                "active": True,
-                "current_turn": current_actor["type"], # "player" or "monster"
-                "actors": active_enc.turn_order,
-                "turn_index": active_enc.current_turn_index
-            }
+            
+            # --- FAILSAFE: DEADLOCK PREVENTION ---
+            # If we are fetching state (passive) but it is the Enemy/NPC turn,
+            # it means the Turn Processor failed to auto-continue previously.
+            # We force it to run now to unblock the UI.
+            if current_actor["type"] != "player":
+                print(f"DEBUG: Found stuck AI turn ({current_actor['name']}). Forcing Turn Process.")
+                try:
+                    self.combat._process_turn_queue(active_enc)
+                    # Refresh active_enc state after processing
+                    self.session.expire(active_enc)
+                    if not active_enc.is_active:
+                         # Combat ended during catch-up
+                         combat_state = {"active": False}
+                    else:
+                         # Re-read actor
+                         current_actor = active_enc.turn_order[active_enc.current_turn_index]
+                except Exception as e:
+                    print(f"CRITICAL: Failed to process stuck turn: {e}")
+
+            # Check if STILL active after potential auto-resolve
+            if active_enc.is_active:
+                combat_state = {
+                    "active": True,
+                    "current_turn": current_actor["type"], # "player" or "monster"
+                    "actors": active_enc.turn_order,
+                    "turn_index": active_enc.current_turn_index,
+                    "phase": active_enc.phase,
+                    "moves_left": active_enc.moves_left,
+                    "actions_left": active_enc.actions_left,
+                    "bonus_actions_left": active_enc.bonus_actions_left
+                }
 
         # Interactables (Generic)
         secrets = []
@@ -694,6 +890,39 @@ class DungeonMaster:
                  "xyz": [o.x, o.y, o.z]
              })
 
+        # Prepare Quest Log for Frontend
+        quest_log = []
+        try:
+            from .quests import QUEST_DATABASE
+            qs = self.player.quest_state or {}
+            
+            # 1. New Dictionary System
+            active_q = qs.get("active", {})
+            if isinstance(active_q, dict):
+                for qid in active_q:
+                    if qid in QUEST_DATABASE:
+                        quest_log.append({
+                            "id": qid,
+                            "title": QUEST_DATABASE[qid]["title"],
+                            "description": QUEST_DATABASE[qid]["description"],
+                            "status": "active"
+                        })
+                    else:
+                        quest_log.append({"title": qid, "status": "active"}) # Fallback
+
+            # 2. Legacy List System (Migration/Compat)
+            legacy_q = qs.get("active_quests", [])
+            if isinstance(legacy_q, list):
+                for q_title in legacy_q:
+                    quest_log.append({
+                        "title": q_title,
+                        "description": "Active Quest (Legacy)",
+                        "status": "active"
+                    })
+                    
+        except Exception as e:
+            print(f"Quest Log Error state: {e}")
+
         return {
             "player": {
                 "xyz": [self.player.x, self.player.y, self.player.z],
@@ -701,7 +930,11 @@ class DungeonMaster:
                 "skills": self.player.skills or {},
                 "hp": self.player.hp_current,
                 "max_hp": self.player.hp_max,
+                "level": self.player.level or 1,
+                "xp": self.player.xp or 0,
                 "gold": self.player.gold or 0,
+                "quest_state": self.player.quest_state or {},
+                "quest_log": quest_log, # NEW friendliness
                 "inventory": [
                     {
                         "id": i.id,
@@ -712,7 +945,7 @@ class DungeonMaster:
                         "item_type": i.item_type,
                         "quantity": i.quantity
                     } 
-                    for i in self.player.inventory
+                    for i in self.player.inventory if i
                 ]
             },
             "world": {
@@ -734,21 +967,9 @@ class DungeonMaster:
         return self.dialogue.chat_with_npc(npc_index, message)
 
     def teleport_player(self, x, y, z):
-        """Move player to a new zone/level."""
-        # End Combat if Active (Escaped!)
-        if self.combat.is_active():
-            self.combat.end_combat()
+        return self.movement.teleport_player(x, y, z)
 
-        self.player.x = x
-        self.player.y = y
-        self.player.z = z
-        self.session.commit()
-        
-        # Check if map exists, if not generate
-        if not self.session.query(MapTile).filter_by(z=z).first():
-            if z == 1:
-                self._generate_town(z)
-        
+    def _dead_update_visited(self, cx, cy, cz):
         # Force visit surrounding
         self.update_visited(x, y, z)
         
@@ -771,3 +992,42 @@ class DungeonMaster:
         """Generate the Oakhaven Town map."""
         builder = LevelBuilder(self.session)
         builder.generate_town(z)
+
+    def upgrade_stat(self, stat_name):
+        """Spend a point to upgrade a stat."""
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        pl = self.player
+        stats = dict(pl.stats or {})
+        points = stats.get('unspent_points', 0)
+        
+        if points <= 0: return "No points available."
+        
+        valid_stats = ['str', 'dex', 'int', 'con', 'cha', 'isd', 'wis', 'agility', 'strength', 'intelligence', 'constitution'] 
+        s_lower = stat_name.lower()
+        
+        # Normalize
+        if s_lower == 'strength': s_lower = 'str'
+        if s_lower == 'agility': s_lower = 'dex'
+        if s_lower == 'intelligence': s_lower = 'int'
+        if s_lower == 'constitution': s_lower = 'con'
+        
+        current = stats.get(s_lower, 10)
+        stats[s_lower] = current + 1
+        stats['unspent_points'] = points - 1
+        
+        pl.stats = stats
+        flag_modified(pl, "stats")
+        self.session.commit()
+        
+        if s_lower == 'con':
+            pl.hp_max += 2
+            pl.hp_current += 2
+            
+        # Recalculate derived stats (AC from DEX)
+        from .inventory_system import InventorySystem
+        inv_sys = InventorySystem(self.session)
+        inv_sys.recalculate_stats(pl)
+        self.session.commit()
+            
+        return f"Upgraded {s_lower.upper()} to {stats[s_lower]}."

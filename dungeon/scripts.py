@@ -49,9 +49,9 @@ NPC_SCRIPTS = {
                 "options": [] # End
             },
             
-            # Post-Rescue / Town Dialogue (State handled by code switching nodes usually, or we check location)
+            # Post-Rescue / Town Dialogue
             "town_start": {
-                "text": "It feels so good to happen the sun again! Thank you for saving me. My shop is open if you need herbs.",
+                "text": "It feels so good to see the sun again! Thank you for saving me. My shop is open if you need herbs.",
                 "options": [
                     {"label": "What do you sell?", "next": "shop_info"},
                     {"label": "Goodbye.", "next": "end"}
@@ -74,30 +74,31 @@ NPC_SCRIPTS = {
         "id": "gareth",
         "start_node": "start",
         "nodes": {
-            "start": {
-                "text": "Hmph. About time someone showed up. You don't look like one of the Warden's lackeys.",
-                "options": [
-                    {"label": "I'm here to rescue you, Gareth.", "next": "rescue_offer"},
-                    {"label": "Lackey? Watch your tongue.", "next": "tough"}
-                ]
-            },
-            "tough": {
-                "text": "Hah! A spine! Good. I'm Gareth Ironhand. I've been stuck here refusing to forge weapons for these skeletons.",
-                "options": [
-                    {"label": "Let's get you out of here.", "next": "rescue_offer"}
-                ]
-            },
-            "rescue_offer": {
-                "text": "Aye, I'm ready to leave. My hammer belongs in my smithy, not this damp hole.",
-                "options": [
-                    {"label": "Go. The path is clear.", "next": "end_rescue", "action": "rescue_gareth"}
-                ]
-            },
-            "end_rescue": {
-                "text": "Right! Come see me in Oakhaven. I'll sharpen that blade of yours for free!",
-                "options": []
-            },
-            "town_start": {
+             "start": {
+                 "text": "Hmph. About time someone showed up. You don't look like one of the Warden's lackeys.",
+                 "options": [
+                     {"label": "I'm here to rescue you, Gareth.", "next": "rescue_offer"},
+                     {"label": "Lackey? Watch your tongue.", "next": "tough"}
+                 ]
+             },
+             "tough": {
+                 "text": "Hah! A spine! Good. I'm Gareth Ironhand. I've been stuck here refusing to forge weapons for these skeletons.",
+                 "options": [
+                     {"label": "Let's get you out of here.", "next": "rescue_offer"}
+                 ]
+             },
+             "rescue_offer": {
+                 "text": "Aye, I'm ready to leave. My hammer belongs in my smithy, not this damp hole.",
+                 "options": [
+                     {"label": "Go. The path is clear.", "next": "end_rescue", "action": "rescue_gareth"}
+                 ]
+             },
+             "end_rescue": {
+                 "text": "Right! Come see me in Oakhaven. I'll sharpen that blade of yours for free!",
+                 "options": []
+             },
+             
+             "town_start": {
                 "text": "Welcome to the Ironhand Smithy! Best steel in the region.",
                 "options": [
                     {"label": "Can you upgrade my gear?", "next": "shop_info"},
@@ -105,18 +106,47 @@ NPC_SCRIPTS = {
                 ]
             },
             "shop_info": {
-                "text": "I can sell you armor and weapons. If you find Iron Ore, bring it here!",
+                "text": "I can sell you armor and weapons. I also need supplies to keep the forge hot.",
                 "options": [
-                    {"label": "I'll look for ore.", "next": "end"},
-                    {"label": "I found some Iron Ore!", "next": "turn_in_ore", "req_item": "Iron Ore", "action": "give_ore"}
+                    {"label": "What do you need?", "next": "quests_check"},
+                    {"label": "Goodbye", "next": "end"}
                 ]
             },
-            "turn_in_ore": {
-                "text": "Ah! Using the old ways, I see. Fine quality. Here is 50 gold for your trouble.",
+            "quests_check": {
+                "text": "Efficiency is key. What have you got?",
                 "options": [
-                    {"label": "Show me your wares.", "next": "shop_info"},
-                    {"label": "Goodbye.", "next": "end"}
+                    # Iron Ore Quest (Available)
+                    {"label": "I can find Iron Ore.", "next": "accept_iron", "action": "accept_quest:iron_supply"},
+                    
+                    # Iron Ore Turn In
+                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply"},
+                    
+                    # Titanium Quest Offer (Req: Iron Supply Completed)
+                    # Note: We rely on req_quest_complete to show this option only if iron_supply is done.
+                    {"label": "Any harder work?", "next": "titanium_offer", "req_quest_complete": "iron_supply"},
+                    
+                    # Titanium Turn In
+                    {"label": "I found the Titanium Fragment!", "next": "turn_in_titanium", "action": "complete_quest:titanium_hunt", "req_quest_active": "titanium_hunt"}
                 ]
+            },
+            "accept_iron": {
+                "text": "Good. Bring me 1 chunk of Iron Ore.",
+                "options": [{"label": "On it.", "next": "end"}]
+            },
+            "turn_in_ore": {
+                "text": "Refined quality. Here is 50 gold. If you want a real challenge, ask me again.",
+                "options": [{"label": "Thanks.", "next": "shop_info"}]
+            },
+            "titanium_offer": {
+                "text": "The Earth Dungeon to the North holds 'Titanium Fragments'. They are rare, found on rock monsters. Bring me one, and I shall forge a legend.",
+                "options": [
+                    {"label": "I'll find it.", "next": "end", "action": "accept_quest:titanium_hunt"},
+                    {"label": "Maybe later.", "next": "end"}
+                ]
+            },
+            "turn_in_titanium": {
+                "text": "By the flames! This metal sings! Take this Titanium Greatsword as your reward.",
+                "options": [{"label": "Incredible!", "next": "end"}]
             },
             "end": {
                 "text": "Strike true!",
@@ -129,50 +159,51 @@ NPC_SCRIPTS = {
         "id": "seraphina",
         "start_node": "start",
         "nodes": {
-            "start": {
-                "text": "We are trapped in here! I've calculated the probability of escape... it's near zero without help. We need to find Elara. She knows these dungeons better than anyone and may know a way out.",
-                "options": [
-                    {"label": "Who is Elara?", "next": "who_elara"},
-                    {"label": "I'll find her.", "next": "leave"}
-                ]
-            },
-            "who_elara": {
-                "text": "She is the town herbalist, but she has studied the ancient layouts. She was dragged deeper in. Please, you must save her first if you want any of us to survive.",
-                "options": [
-                    {"label": "I will find her.", "next": "leave"}
-                ]
-            },
-            "leave": {
-                "text": "Good luck. I will try to disrupt the magical wards from here while you search. Go!",
-                "options": [
-                    {"label": "Actually, follow me. We stick together.", "next": "following", "action": "follow_me"},
-                    {"label": "Stay here and wait.", "next": "waiting", "action": "stay_here"}
-                ]
-            },
-            "following": {
-                "text": "Very well. I shall stay close. Do not lead us into a trap.",
-                "options": [
-                    {"label": "Let's move.", "next": "following_loop"}
-                ]
-            },
-            "following_loop": {
-                "text": "I am right behind you.",
-                "options": [
-                    {"label": "Wait here.", "next": "waiting", "action": "stay_here"}
-                ]
-            },
-            "waiting": {
-                "text": "I will remain here. Do not be long.",
-                "options": [
-                    {"label": "Follow me.", "next": "following", "action": "follow_me"}
-                ]
-            },
-            "end_rescue": {
-                "text": "I'll head for the exit as soon as the path is clear! Thank you!",
-                "options": []
-            },
+             "start": {
+                 "text": "We are trapped in here! I've calculated the probability of escape... it's near zero without help. We need to find Elara. She knows these dungeons better than anyone and may know a way out.",
+                 "options": [
+                     {"label": "Who is Elara?", "next": "who_elara"},
+                     {"label": "I'll find her.", "next": "leave"}
+                 ]
+             },
+             "who_elara": {
+                 "text": "She is the town herbalist, but she has studied the ancient layouts. She was dragged deeper in. Please, you must save her first.",
+                 "options": [
+                     {"label": "I will find her.", "next": "leave"}
+                 ]
+             },
+             "leave": {
+                 "text": "Good luck. I will try to disrupt the magical wards from here while you search. Go!",
+                 "options": [
+                     {"label": "Actually, follow me.", "next": "following", "action": "follow_me"},
+                     {"label": "Stay here.", "next": "waiting", "action": "stay_here"}
+                 ]
+             },
+             "following": {
+                 "text": "Very well. I shall stay close. Do not lead us into a trap.",
+                 "options": [
+                     {"label": "Let's move.", "next": "following_loop"}
+                 ]
+             },
+             "following_loop": {
+                 "text": "I am right behind you.",
+                 "options": [
+                     {"label": "Wait here.", "next": "waiting", "action": "stay_here"}
+                 ]
+             },
+             "waiting": {
+                 "text": "I will remain here. Do not be long.",
+                 "options": [
+                     {"label": "Follow me.", "next": "following", "action": "follow_me"}
+                 ]
+             },
+             "end_rescue": {
+                 "text": "I'll head for the exit as soon as the path is clear! Thank you!",
+                 "options": []
+             },
+
              "town_start": {
-                "text": "Ah, the mana flow is much more stable here. Welcome to my shop!",
+                "text": "Welcome to my Alchemy Shop! The mana here is pristine.",
                 "options": [
                     {"label": "Do you have potions?", "next": "shop_info"},
                     {"label": "Bye.", "next": "end"}
@@ -181,16 +212,41 @@ NPC_SCRIPTS = {
             "shop_info": {
                 "text": "Potions, elixirs, and mysteries! Bring me Mystic Herbs and I will brew wonders.",
                 "options": [
-                    {"label": "Understood.", "next": "end"},
-                    {"label": "I found Mystic Herbs!", "next": "turn_in_herb", "req_item": "Mystic Herb", "action": "give_herb"}
+                     {"label": "I can help gather.", "next": "quests_check"},
+                     {"label": "Goodbye.", "next": "end"}
                 ]
             },
-            "turn_in_herb": {
-                "text": "Marvelous! The essence is strong with this one. Here, take 30 gold.",
+            "quests_check": {
+                "text": "Nature provides, but we must gather. What have you found?",
                 "options": [
-                    {"label": "Do you have potions?", "next": "shop_info"},
-                    {"label": "Goodbye.", "next": "end"}
+                    # Herb Quest
+                    {"label": "I'll find Mystic Herbs.", "next": "accept_herb", "action": "accept_quest:herbal_remedy"},
+                    {"label": "Here are the herbs.", "next": "turn_in_herb", "action": "complete_quest:herbal_remedy", "req_quest_active": "herbal_remedy"},
+                    
+                    # Potion Quest (Req: Herb Done)
+                    {"label": "I seek powerful magic.", "next": "reagent_offer", "req_quest_complete": "herbal_remedy"},
+                    {"label": "I have the Fire and Ice reagents!", "next": "turn_in_reagents", "action": "complete_quest:elemental_reagents", "req_quest_active": "elemental_reagents"}
                 ]
+            },
+            "accept_herb": {
+                "text": "Excellent. I need 1 Mystic Herb.",
+                "options": [{"label": "Okay.", "next": "end"}]
+            },
+            "turn_in_herb": {
+                "text": "Lovely aroma. Here is 30 gold. Come back if you wish to delve deeper into alchemy.",
+                "options": [{"label": "Thanks.", "next": "shop_info"}]
+            },
+            "reagent_offer": {
+                "text": "The Fire Dungeon has 'Everburning Cinders'. The Ice Dungeon has 'Freezing Spikes'. Bring me one of each, and I will brew a Potion of Power for you.",
+                "options": [
+                    {"label": "I accept.", "next": "end", "action": "accept_quest:elemental_reagents"}
+                ]
+            },
+            "turn_in_reagents": {
+                 "text": "Incredible! Fire and Ice... contained in glass. Here is your Potion of Power!",
+                 "options": [
+                     {"label": "Thank you!", "next": "end"}
+                 ]
             },
             "end": {
                 "text": "May the stars guide you.",
@@ -204,23 +260,34 @@ NPC_SCRIPTS = {
         "start_node": "start",
         "nodes": {
              "start": {
-                 "text": "Greetings, hero. The village of Oakhaven has suffered greatly.",
+                 "text": "Greetings, hero! The village of Oakhaven is in your debt for saving my people.",
                  "options": [
-                     {"label": "How can I help?", "next": "help"},
+                     {"label": "I'm happy to help.", "next": "quest"},
                      {"label": "Who are you?", "next": "intro"}
                  ]
              },
              "intro": {
-                 "text": "I am Elder Aethelgard. I watch over this town... or what's left of it.",
+                 "text": "I am Elder Aethelgard. Thanks to you, Gareth and Elara are safe. But a new danger looms.",
                  "options": [
-                     {"label": "How can I help?", "next": "help"}
+                     {"label": "What danger?", "next": "quest"}
                  ]
              },
-             "help": {
-                 "text": "My niece Elara, Gareth the Blacksmith, and Seraphina... they were all taken to the dungeon below. Please, bring them back.",
+             "quest": {
+                 "text": "The North Forest is blocked by four ancient Elemental Dungeons (Fire, Ice, Earth, Air). Merchants cannot reach us! If you clear the 4 bosses, I will grant you a house.",
                  "options": [
-                     {"label": "I will save them.", "next": "end"}
+                     {"label": "I will handle it.", "next": "end_quest", "action": "accept_quest:elemental_balance"},
+                     {"label": "A house?", "next": "house_info"}
                  ]
+             },
+             "house_info": {
+                 "text": "Yes! A plot of land right here in Oakhaven. A place to rest and store your loot. But first, the roads must be safe.",
+                 "options": [
+                     {"label": "I'll do it.", "next": "end_quest", "action": "accept_quest:elemental_balance"}
+                 ]
+             },
+             "end_quest": {
+                  "text": "Go North, into the forest. Be careful of the beasts.",
+                  "options": []
              },
              "end": {
                  "text": "The gods bless you.",

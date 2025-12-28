@@ -81,7 +81,11 @@ class CombatSystem:
         encounter = CombatEncounter(
             turn_order=participants,
             current_turn_index=0,
-            is_active=True
+            is_active=True,
+            phase="move",
+            moves_left=6,
+            actions_left=1,
+            bonus_actions_left=1
         )
         self.session.add(encounter)
         self.session.commit()
@@ -89,6 +93,7 @@ class CombatSystem:
         # Link monsters
         for m in room_monsters:
             m.encounter_id = encounter.id
+            m.state = "combat" # Ensure state is updated so frontend sees them as targets
         self.session.commit()
         
         # 6. Initial Turn Check
@@ -106,79 +111,112 @@ class CombatSystem:
         return {"events": events}
 
     def player_action(self, action_type, target_id=None):
-        """Execute player turn and then cycle queue."""
+        """Execute player turn phase-step."""
         encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
         if not encounter:
             return {"events": [{"type": "text", "message": "No active combat."}]}
 
-        order = encounter.turn_order
         idx = encounter.current_turn_index
-        current_actor = order[idx]
+        current_actor = encounter.turn_order[idx]
         
         if current_actor["type"] != "player":
             return {"events": [{"type": "text", "message": "It is not your turn!"}]}
 
         events = []
         
-        # --- PLAYER ACTION LOGIC ---
-        # Resolve Target
-        target = None
-        if target_id:
-            target = self.session.query(Monster).filter_by(id=target_id).first()
-        else:
-            # Default to first alive monster
-            target = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).first()
-            
-        if not target and action_type == "attack":
-             return {"events": [{"type": "text", "message": "No targets remaining!"}]}
+        # --- FLEXIBLE TURN LOGIC ---
+        if action_type == "end_turn":
+            events.append({"type": "text", "message": "Ending Turn..."})
+            events.extend(self._cycle_turn(encounter))
+            return {"events": events}
 
-        if action_type == "attack":
-            events.extend(self._resolve_player_attack(target))
-        elif action_type == "second_wind":
-            events.extend(self._resolve_second_wind())
+        # --- ACTION LOGIC ---
+        if action_type == "move":
+            if encounter.moves_left <= 0:
+                return {"events": [{"type": "text", "message": "No movement remaining!"}]}
             
-        elif action_type == "defend":
-            # Temporary defense buff logic (simplified)
-            # In a real system we'd set a 'defending' flag on the player for turn duration
-            # For now, just a narrative event and maybe a small heal or just a message
-            events.append({"type": "text", "message": "You raise your guard, preparing for the next attack."})
-            events.append({"type": "popup", "title": "DEFENSE UP", "content": "Armor Class +2 (1 Turn)", "duration": 1500, "color": "rgba(50, 50, 200, 0.8)"})
-            # TODO: Implement actual AC mod in database or temp state
+            encounter.moves_left -= 1
+            # Note: Coordinate update is in DM.py
+            pass 
+
+        elif action_type in ["attack"]:
+            if encounter.actions_left <= 0:
+                return {"events": [{"type": "text", "message": "Action already spent!"}]}
+
+            encounter.actions_left -= 1
             
-        elif action_type == "use_potion":
-            # Consumable Logic
-            heal = roll_dice(4) + roll_dice(4) + 2
-            self.dm.player.hp_current = min(self.dm.player.hp_max, self.dm.player.hp_current + heal)
-            events.append({"type": "anim", "actor": "player", "anim": "heal"})
-            events.append({"type": "text", "message": f"<span style='color:cyan'>Glug glug...</span> You drink a potion and recover <b>{heal} HP</b>."})
-            # TODO: Consume item from inventory
+            # Resolve Target
+            target = None
+            if target_id: target = self.session.query(Monster).filter_by(id=target_id).first()
+            else: target = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).first()
+            
+            if not target:
+                # Fallback: If target died or ID is wrong, target FIRST living enemy
+                target = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).first()
+            
+            if not target: 
+                # If still no target, we might have won already?
+                events.extend(self._check_victory(encounter))
+                if encounter.is_active:
+                        events.append({"type": "text", "message": "No valid target found."})
+            else: 
+                events.extend(self._resolve_player_attack(target))
+                # Check Victory Condition
+                events.extend(self._check_victory(encounter))
+            
+        elif action_type in ["use_potion", "second_wind"]:
+            if encounter.bonus_actions_left <= 0:
+                return {"events": [{"type": "text", "message": "Bonus action already spent!"}]}
+            
+            encounter.bonus_actions_left -= 1
+            
+            if action_type == "use_potion":
+                heal = roll_dice(4) + roll_dice(4) + 2
+                self.dm.player.hp_current = min(self.dm.player.hp_max, self.dm.player.hp_current + heal)
+                events.append({"type": "anim", "actor": "player", "anim": "heal"})
+                events.append({"type": "text", "message": f"You drink a potion and recover <b>{heal} HP</b>."})
+            elif action_type == "second_wind":
+                events.extend(self._resolve_second_wind())
 
         elif action_type == "flee":
-             # End Encounter
-             encounter.is_active = False
-             for m in encounter.monsters:
-                 m.state = "idle"
-             self.session.commit()
-             return {"events": [{"type": "text", "message": "You fled the battle!"}]}
-        elif action_type == "move":
-             events.append({"type": "text", "message": "You reposition in the chaos."})
+             active = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+             if active:
+                 active.is_active = False
+                 for m in active.monsters: m.state = "idle"
+                 self.session.commit()
+                 return {"events": [{"type": "text", "message": "You fled the battle!"}]}
 
-        # --- END TURN & CYCLE ---
-        # Advance index
-        encounter.current_turn_index = (idx + 1) % len(order)
+        # No Auto-Advance. Player must click End Turn.
         self.session.commit()
-        
-        # Process AI Turns until Player
-        events.extend(self._process_turn_queue(encounter))
-        
-        # Check Victory Condition (All monsters dead)
-        alive_monsters = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).count()
-        if alive_monsters == 0:
-            encounter.is_active = False
-            self.session.commit()
-            events.append({"type": "popup", "title": "VICTORY", "content": "All enemies defeated!", "duration": 3000})
-            
         return {"events": events}
+
+    def _advance_phase(self, encounter):
+        """Move to next phase or end turn."""
+        events = []
+        if encounter.phase == "move":
+            encounter.phase = "action"
+            events.append({"type": "popup", "title": "ACTION PHASE", "content": "Choose your action!", "duration": 1000})
+        elif encounter.phase == "action":
+            encounter.phase = "bonus"
+            events.append({"type": "popup", "title": "BONUS PHASE", "content": "Bonus actions available.", "duration": 1000})
+        elif encounter.phase == "bonus":
+            events.append({"type": "text", "message": "Ending Turn..."})
+            events.extend(self._cycle_turn(encounter))
+        
+        self.session.commit()
+        return events
+
+    def _cycle_turn(self, encounter):
+        encounter.current_turn_index = (encounter.current_turn_index + 1) % len(encounter.turn_order)
+        
+        # Reset Stats for New Actor
+        encounter.phase = "move"
+        encounter.moves_left = 6
+        encounter.actions_left = 1
+        encounter.bonus_actions_left = 1
+        
+        self.session.commit()
+        return self._process_turn_queue(encounter)
 
     def _process_turn_queue(self, encounter):
         """Loop through turn order until it is the Player's turn."""
@@ -197,22 +235,38 @@ class CombatSystem:
                 
             # 2. Process Enemy
             monster = self.session.query(Monster).filter_by(id=actor_data["id"]).first()
+            npc = None
+            if actor_data["type"] == "npc":
+                 from .database import NPC
+                 npc = self.session.query(NPC).filter_by(id=actor_data["id"]).first()
             
             if monster and monster.is_alive:
                 events.append({"type": "turn_switch", "actor": "enemy", "title": f"{monster.name}'s Turn", "content": "Attacking..."})
+                # Simulate Phases
+                # Phase 1: Move
+                encounter.phase = "move"
+                # Phase 2: Action
+                encounter.phase = "action"
+                # Phase 3: Bonus
+                encounter.phase = "bonus"
+                # Do Logic
                 events.extend(self._enemy_turn(monster))
-            elif actor_data["type"] == "npc":
-                from .database import NPC
-                npc = self.session.query(NPC).filter_by(id=actor_data["id"]).first()
-                if npc:
-                    events.append({"type": "turn_switch", "actor": "npc", "title": f"{npc.name}'s Turn", "content": "Acting..."})
-                    events.extend(self._npc_turn(npc, encounter))
+                
+            elif npc:
+                events.append({"type": "turn_switch", "actor": "npc", "title": f"{npc.name}'s Turn", "content": "Acting..."})
+                events.extend(self._npc_turn(npc, encounter))
             else:
-                # Skip dead
-                pass
+                pass # Skip dead
                 
             # 3. Advance Index
             encounter.current_turn_index = (idx + 1) % len(encounter.turn_order)
+            
+            # Reset for next
+            encounter.phase = "move"
+            encounter.moves_left = 6
+            encounter.actions_left = 1
+            encounter.bonus_actions_left = 1
+            
             self.session.commit() # Save progress
             loops += 1
             
@@ -250,6 +304,15 @@ class CombatSystem:
                 enemy.state = "dead"
                 self.dm.player.xp += 50
                 
+                # --- QUEST HOOK ---
+                try:
+                    from .quests import QuestManager
+                    qm = QuestManager(self.session, self.dm.player)
+                    qm.record_kill(enemy.name)
+                except Exception as e:
+                    print(f"Quest Hook Error: {e}")
+                # ------------------
+                
                 # Generate Loot
                 self._generate_loot(enemy)
                 flag_modified(enemy, "loot")
@@ -264,171 +327,222 @@ class CombatSystem:
             
         return events
 
-    def _enemy_turn(self, enemy):
-        events = [{"type": "anim", "actor": "enemy", "anim": "attack"}]
+    # --- HELPER METHODS ---
+    def _move_actor_towards(self, actor, target_x, target_y, max_steps=6):
+        """Standardized pathfinding - moves actor towards target."""
+        # Simple Pathfinding: Move towards target one tile at a time
+        from .database import MapTile, NPC, Monster
         
-        # Simple Attack Logic
-        str_mod = self._get_modifier(enemy.stats.get("str", 10))
-        roll = roll_dice(20)
-        total_hit = roll + str_mod
+        start_dist = max(abs(actor.x - target_x), abs(actor.y - target_y))
+        current_dist = start_dist
+        steps = 0
+        moved = False
         
-        # Player AC
-        player_ac = self.dm.player.armor_class
+        # Valid Tile Cache (optional optimization could go here)
         
-        if total_hit >= player_ac:
-            dmg = roll_dice(6) + str_mod
-            self.dm.player.hp_current -= dmg
+        while steps < max_steps and current_dist > 1.5: # 1.5 is melee range
+            dx = 0
+            dy = 0
+            if actor.x < target_x: dx = 1
+            elif actor.x > target_x: dx = -1
             
-            # Check for Player Death
-            if self.dm.player.hp_current <= 0:
-                self.dm.player.hp_current = 0
-                
-                # End Encounter
-                encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
-                if encounter:
-                    encounter.is_active = False
-                    
-                    # Reset all monsters to idle
-                    for m in encounter.monsters:
-                        m.state = "idle"
-                
-                # Respawn Mechanics
-                self.dm.player.hp_current = self.dm.player.hp_max
-                self.dm.teleport_player(0, 0, 1) # Town Plaza
-                
-                loss = int((self.dm.player.gold or 0) * 0.1)
-                self.dm.player.gold = (self.dm.player.gold or 0) - loss
-                
-                events.append({"type": "text", "message": f"{enemy.name} attacks: <b>{total_hit}</b> <span style='color:red'>CRITIAL HIT!</span> ({dmg} dmg)"})
-                events.append({
-                    "type": "popup", 
-                    "title": "☠️ YOU DIED ☠️", 
-                    "content": f"You fall in battle... and wake up in town.<br>Lost {loss} gold.",
-                    "duration": 5000,
-                    "color": "rgba(100, 0, 0, 0.95)"
-                })
-                # Commit immediately to ensure position update propagates
-                self.session.commit()
-                return events
+            if actor.y < target_y: dy = 1
+            elif actor.y > target_y: dy = -1
+            
+            new_x = actor.x + dx
+            new_y = actor.y + dy
+            
+            # blocked?
+            blocked = False
+            
+            # 1. Wall Check
+            # We should query the map. For now, we trust the generator's open space or check known obstacles.
+            # Ideally: tile = self.session.query(MapTile).filter_by(x=new_x, y=new_y, z=actor.z).first()
+            # This is expensive in a loop.
+            # Simplified: Check if occupied by another entity
+            
+            if self.session.query(Monster).filter_by(x=new_x, y=new_y, z=actor.z, is_alive=True).first(): blocked = True
+            if self.session.query(NPC).filter_by(x=new_x, y=new_y, z=actor.z).first(): blocked = True
+            if new_x == self.dm.player.x and new_y == self.dm.player.y: blocked = True
+            
+            if not blocked:
+                actor.x = new_x
+                actor.y = new_y
+                moved = True
+                steps += 1
+                current_dist = max(abs(actor.x - target_x), abs(actor.y - target_y))
+            else:
+                # Try only ONE axis if diagonal blocked
+                if dx != 0 and dy != 0:
+                     # Try X only
+                     new_x = actor.x + dx
+                     new_y = actor.y
+                     # Re-check (Simplified generic check)
+                     if not (new_x == self.dm.player.x and new_y == self.dm.player.y):
+                         actor.x = new_x 
+                         steps += 1
+                         current_dist = max(abs(actor.x - target_x), abs(actor.y - target_y))
+                         moved = True
+                     # Else Try Y...
+                else:
+                    break # Blocked
 
-            # 1. Text Log
-            events.append({"type": "text", "message": f"{enemy.name} attacks: <b>{total_hit}</b> <span style='color:red'>HITS!</span> ({dmg} dmg)"})
+        if moved: 
+            self.session.add(actor)
+            self.session.flush() # CRITICAL: Update 'x/y' in transaction so next actor sees it
+        return moved
+        
+    def _check_victory(self, encounter):
+        """Checks if all monsters are dead and ends combat if so."""
+        alive_monsters = [m for m in encounter.monsters if m.is_alive]
+        events = []
+        if not alive_monsters:
+            encounter.is_active = False
             
-            # 2. Main Screen Popup
+            # --- XP CALCULATION ---
+            total_xp = 0
+            for m in encounter.monsters:
+                 # Simple Formula: 4 XP per HP (so a 10 HP rat = 40 XP, Need 100 for Lvl 2)
+                 total_xp += (m.hp_max or 10) * 4
+            
+            pl = self.dm.player
+            old_level = pl.level or 1
+            pl.xp = (pl.xp or 0) + total_xp
+            
+            # --- LEVEL UP CHECK ---
+            # Threshold: Level * 150 (Level 1->2 needs 150 total XP)
+            next_level_xp = old_level * 150
+            leveled_up = False
+            
+            while pl.xp >= next_level_xp:
+                pl.xp -= next_level_xp
+                pl.level += 1
+                leveled_up = True
+                
+                # Stat Growths
+                hp_gain = 5 # Small fixed growth
+                pl.hp_max += hp_gain
+                pl.hp_current = pl.hp_max # Full Heal
+                
+                # Grant Stat Point
+                # Ensure stats dict exists and is mutable
+                stats = dict(pl.stats or {})
+                if 'unspent_points' not in stats: stats['unspent_points'] = 0
+                stats['unspent_points'] += 1
+                pl.stats = stats
+                
+                # Flag modified for JSON
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(pl, "stats")
+                
+                next_level_xp = pl.level * 150
+                
+            self.session.commit()
+
             events.append({
                 "type": "popup", 
-                "title": "HIT!", 
-                "content": f"You take <b style='color:red; font-size: 1.5em;'>{dmg}</b> damage!",
-                "duration": 2000
+                "title": "VICTORY!", 
+                "content": f"Combat ended. Gained {total_xp} XP.",
+                "duration": 3000,
+                "color": "#d4af37" 
             })
+            
+            msg = f"<b>Victory!</b> You gained <span style='color:#0f0'>{total_xp} XP</span>."
+            if leveled_up:
+                msg += f"<br><span style='color:#ff0; font-size:1.2em;'>LEVEL UP! You are now Level {pl.level}!</span>"
+                events.append({
+                    "type": "popup",
+                    "title": "LEVEL UP!",
+                    "content": f"Reached Level {pl.level}!",
+                    "duration": 5000,
+                    "color": "#ffff00"
+                })
+                
+            events.append({"type": "text", "message": msg})
+            
+        return events
+
+    # --- ENEMY TURN ---
+    def _enemy_turn(self, enemy):
+        events = []
+        player = self.dm.player
+        dist = max(abs(enemy.x - player.x), abs(enemy.y - player.y))
+        attack_range = 1.5
+
+        # MOVEMENT
+        if dist > attack_range:
+             moved = self._move_actor_towards(enemy, player.x, player.y)
+             if moved: events.append({"type": "text", "message": f"{enemy.name} moves closer."})
+             dist = max(abs(enemy.x - player.x), abs(enemy.y - player.y)) # Recalc
+
+        # ACTION
+        if dist <= attack_range:
+            events.append({"type": "anim", "actor": "enemy", "anim": "attack"})
+            
+            # Attack
+            str_mod = self._get_modifier(enemy.stats.get("str", 10))
+            total_hit = roll_dice(20) + str_mod
+            
+            if total_hit >= player.armor_class:
+                dmg = roll_dice(6) + str_mod
+                player.hp_current = max(0, player.hp_current - dmg)
+                events.append({"type": "text", "message": f"{enemy.name} hits you for <span style='color:red'>{dmg}</span> dmg!"})
+                events.append({"type": "popup", "title": "HIT", "content": f"-{dmg} HP", "duration": 1000})
+                
+                if player.hp_current == 0:
+                    # Player Death
+                    events.append({"type": "popup", "title": "DEFEAT", "content": "You have fallen.", "duration": 4000})
+                    self.dm.teleport_player(0,0,1)
+                    player.hp_current = player.hp_max
+                    # Reset Encounter
+                    encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+                    if encounter: encounter.is_active = False
+            else:
+                 events.append({"type": "text", "message": f"{enemy.name} misses."})
         else:
-            events.append({"type": "text", "message": f"{enemy.name} attacks and <span style='color:#888'>MISSES</span>."})
-            events.append({
-                "type": "popup", 
-                "title": "MISS", 
-                "content": "You dodged the attack!",
-                "duration": 1500
-            })
-            
+             events.append({"type": "text", "message": f"{enemy.name} roars!"})
+
         return events
 
     def _npc_turn(self, npc, encounter):
         """Automated turn for friendly NPCs."""
         events = []
         
-        # 1. Select Target (First alive monster)
-        # Improvement: Select closest monster
+        # 1. Target Selection
         targets = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
-        if not targets:
-             return [{"type": "text", "message": f"{npc.name} looks around, finding no targets."}]
+        if not targets: return [{"type": "text", "message": f"{npc.name} waits."}]
         
-        # Sort by distance
-        targets.sort(key=lambda m: abs(m.x - npc.x) + abs(m.y - npc.y))
+        targets.sort(key=lambda m: max(abs(m.x - npc.x), abs(m.y - npc.y)))
         target = targets[0]
 
-        # 2. Determine Capabilities
         is_mage = "Seraphina" in npc.name
-        attack_range = 6 if is_mage else 1
+        attack_range = 6 if is_mage else 1.5
+        dist = max(abs(target.x - npc.x), abs(target.y - npc.y))
         
-        # 3. Movement Logic
-        dist = max(abs(target.x - npc.x), abs(target.y - npc.y)) # Chebyshev distance for tiles
-        
+        # 2. Movement
         if dist > attack_range:
-            # Move closer
-            dx = 0
-            dy = 0
-            if npc.x < target.x: dx = 1
-            elif npc.x > target.x: dx = -1
-            
-            if npc.y < target.y: dy = 1
-            elif npc.y > target.y: dy = -1
-            
-            # Try X then Y, or diagonal
-            # Simplified pathfinding: Just try the ideal step
-            new_x = npc.x + dx
-            new_y = npc.y + dy
-            
-            # Collision Check
-            from .database import MapTile, NPC
-            blocked = False
-            
-            # Wall
-            tile = self.session.query(MapTile).filter_by(x=new_x, y=new_y, z=npc.z).first()
-            if not tile or tile.tile_type in ["wall", "void", "water"]: blocked = True
-            
-            # Occupied
-            if not blocked:
-                if new_x == self.dm.player.x and new_y == self.dm.player.y: blocked = True
-                elif self.session.query(NPC).filter_by(x=new_x, y=new_y, z=npc.z).first(): blocked = True
-                elif self.session.query(Monster).filter_by(x=new_x, y=new_y, z=npc.z).first(): blocked = True
-            
-            if not blocked:
-                npc.x = new_x
-                npc.y = new_y
-                events.append({"type": "text", "message": f"{npc.name} moves into position."})
-                self.session.add(npc)
-                # Recalculate dist
-                dist = max(abs(target.x - npc.x), abs(target.y - npc.y))
-            else:
-                events.append({"type": "text", "message": f"{npc.name} tries to move but is blocked."})
-
-        # 4. Attack Logic
+             moved = self._move_actor_towards(npc, target.x, target.y)
+             if moved: events.append({"type": "text", "message": f"{npc.name} moves."})
+             dist = max(abs(target.x - npc.x), abs(target.y - npc.y))
+             
+        # 3. Attack
         if dist <= attack_range:
-            attack_roll = roll_dice(20) + 3 # +3 Proficiency/Stat assumed
-            dmg_roll = 0
-            action_name = "attacks"
-            anim = "attack"
-            
-            if is_mage:
-                action_name = "casts Firebolt at"
-                anim = "magic" 
-                dmg_roll = roll_dice(10) # 1d10
-            else:
-                dmg_roll = roll_dice(6) + 2 # 1d6+2 Mace
-                
-            events.append({"type": "anim", "actor": "npc", "anim": anim})
-            
-            if attack_roll >= target.armor_class:
-                target.hp_current -= dmg_roll
-                
-                # Check Death
-                if target.hp_current <= 0:
-                    target.is_alive = False
-                    target.state = "dead"
-                    target.state = "dead"
-                    self._generate_loot(target)
-                    flag_modified(target, "state")
-                    flag_modified(target, "loot")
-                    self.dm.player.xp += 25 # Assist XP
-                    events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} for <b>{dmg_roll}</b> damage. <span style='color:red'>It is destroyed!</span>"})
-                else:
-                    events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} for <b>{dmg_roll}</b> damage."})
-            else:
-                events.append({"type": "text", "message": f"{npc.name} {action_name} {target.name} but misses."})
-        else:
-             events.append({"type": "text", "message": f"{npc.name} is too far away to attack."})
-            
-        return events
+             # Roll
+             hit = roll_dice(20) + 3
+             if hit >= target.armor_class:
+                 dmg = roll_dice(8 if not is_mage else 10)
+                 target.hp_current -= dmg
+                 events.append({"type": "text", "message": f"{npc.name} hits {target.name} for {dmg}."})
+                 if target.hp_current <= 0:
+                     target.is_alive = False
+                     target.state = "dead"
+                     self._generate_loot(target)
+                     events.append({"type": "text", "message": f"{target.name} dies!"})
+                     # Victory Check
+                     events.extend(self._check_victory(encounter))
+             else:
+                 events.append({"type": "text", "message": f"{npc.name} misses {target.name}."})
+                 
         return events
 
     def _generate_loot(self, enemy):

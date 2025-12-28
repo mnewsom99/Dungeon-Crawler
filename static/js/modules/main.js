@@ -38,27 +38,12 @@ window.onload = function () {
     console.log("Dungeon Crawler Initialized");
     if (window.audioSystem) window.audioSystem.init();
 
-    // Canvas Click Movement
-    const canvas = document.getElementById('map-canvas');
-    if (canvas) {
-        canvas.addEventListener('click', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            const cx = e.clientX - rect.left - canvas.width / 2;
-            const cy = e.clientY - rect.top - canvas.height / 2;
-
-            if (Math.abs(cx) > Math.abs(cy)) {
-                if (cx > 0) move('east');
-                else move('west');
-            } else {
-                if (cy > 0) move('south');
-                else move('north');
-            }
-        });
-    }
+    // Canvas Click Movement Handled by graphics.js now to prevent double-move
+    // (See graphics.js mousedown listener)
 
     // Start Loop
     fetchState();
-    setInterval(fetchState, 500);
+    setInterval(fetchState, 600);
 
     // Initial Narrative
     setTimeout(() => {
@@ -87,10 +72,16 @@ async function move(d) {
             }
         }
 
+        // Combat Events (e.g. Enemy Turn processing after move)
+        if (json.events && window.playCombatEvents) {
+            await window.playCombatEvents(json.events);
+        }
+
         if (window.audioSystem) window.audioSystem.play('step');
         fetchState();
     } catch (e) { console.error(e); }
 }
+window.movePlayerCmd = move; // Expose to graphics.js
 
 // Input Handling
 document.addEventListener('keydown', (e) => {
@@ -98,9 +89,10 @@ document.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
         e.preventDefault();
 
-        if (e.key === 'w' || e.key === 'ArrowUp') move('north');
-        if (e.key === 's' || e.key === 'ArrowDown') move('south');
-        if (e.key === 'a' || e.key === 'ArrowLeft') move('west');
-        if (e.key === 'd' || e.key === 'ArrowRight') move('east');
+        // console.log("Key:", e.key); 
+        if (e.key === 'w' || e.key === 'ArrowUp') { console.log('Move North req'); move('north'); }
+        if (e.key === 's' || e.key === 'ArrowDown') { console.log('Move South req'); move('south'); }
+        if (e.key === 'a' || e.key === 'ArrowLeft') { console.log('Move West req'); move('west'); }
+        if (e.key === 'd' || e.key === 'ArrowRight') { console.log('Move East req'); move('east'); }
     }
 });

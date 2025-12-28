@@ -143,25 +143,74 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
             // Knob
             ctx.fillStyle = '#FFD700';
             ctx.fillRect(drawX + TILE_SIZE - 10, drawY + TILE_SIZE / 2, 4, 4);
+        } else if (tileType === 'herb') {
+            // Grass Base
+            ctx.fillStyle = '#228b22';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Flower Cluster
+            ctx.fillStyle = '#FF69B4'; // HotPink Flowers
+            ctx.beginPath();
+            ctx.arc(drawX + 8, drawY + 8, 3, 0, Math.PI * 2);
+            ctx.arc(drawX + 24, drawY + 24, 3, 0, Math.PI * 2);
+            ctx.arc(drawX + 8, drawY + 24, 3, 0, Math.PI * 2);
+            ctx.arc(drawX + 24, drawY + 8, 3, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (tileType === 'door_stone') {
+            // Stone floor
+            ctx.fillStyle = '#222';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Archway
+            ctx.fillStyle = '#555'; // Grey Stone
+            ctx.fillRect(drawX + 4, drawY + 2, TILE_SIZE - 8, TILE_SIZE - 2);
+            // Inner Portal
+            ctx.fillStyle = '#111'; // Dark Entrance
+            ctx.fillRect(drawX + 8, drawY + 8, TILE_SIZE - 16, TILE_SIZE - 8);
         } else if (tileType === 'anvil') {
-            // Wood floor bg
+            // ... (keep existing) ...
             ctx.fillStyle = '#8B4513';
             ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-            // Anvil Base
             ctx.fillStyle = '#2F4F4F';
             ctx.fillRect(drawX + 8, drawY + 10, 16, 16);
-            // Anvil Top
             ctx.fillStyle = '#708090';
             ctx.fillRect(drawX + 4, drawY + 8, 24, 8);
         } else if (tileType === 'shelf') {
-            // Wood floor bg
+            // ... (keep existing) ...
             ctx.fillStyle = '#8B4513';
             ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
-            // Shelf
-            ctx.fillStyle = '#DEB887'; // Burlywood
+            ctx.fillStyle = '#DEB887';
             ctx.fillRect(drawX + 2, drawY + 4, 28, 6);
             ctx.fillRect(drawX + 2, drawY + 14, 28, 6);
             ctx.fillRect(drawX + 2, drawY + 24, 28, 6);
+        } else if (tileType === 'lava') {
+            ctx.fillStyle = '#cf1020'; // Lava Red
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            ctx.fillStyle = '#ff8c00';
+            ctx.fillRect(drawX + Math.random() * 20, drawY + Math.random() * 20, 6, 6);
+        } else if (tileType === 'ice') {
+            ctx.fillStyle = '#a5f2f3'; // Ice Blue
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(drawX + 5, drawY + 5, 8, 2);
+        } else if (tileType === 'void') {
+            // Starfield
+            ctx.fillStyle = '#110022';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            ctx.fillStyle = '#fff';
+            if (Math.random() > 0.9) ctx.fillRect(drawX + Math.random() * 32, drawY + Math.random() * 32, 1, 1);
+        } else if (tileType === 'rock') {
+            // Grass Base (since it's in forest)
+            ctx.fillStyle = '#228b22';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Rock
+            ctx.fillStyle = '#555';
+            ctx.beginPath();
+            ctx.arc(drawX + 16, drawY + 16, 10, 0, Math.PI * 2);
+            ctx.fill();
+            // Highlight
+            ctx.fillStyle = '#777';
+            ctx.beginPath();
+            ctx.arc(drawX + 12, drawY + 12, 4, 0, Math.PI * 2);
+            ctx.fill();
         } else {
             // Unknown
             ctx.fillStyle = '#000';
@@ -478,19 +527,31 @@ async function fetchState() {
     questList.innerHTML = '';
     let questCount = 0;
 
-    // We infer quests from NPC presence. If we are in the dungeon (Z=0) and NPCs are there, we have a quest to save them.
+    // A. Active Quests from Player State
+    // We now use the friendly 'quest_log' processed by backend
+    const activeQuests = rawData.player.quest_log || [];
+
+    activeQuests.forEach(quest => {
+        const div = document.createElement('div');
+        div.className = 'interaction-item';
+        div.style.borderLeft = "3px solid #ffd700"; // Gold highlight
+        div.innerHTML = `
+            <div style="color: #ffd700; font-weight: bold;">${quest.title || quest}</div>
+            <div style="font-size: 0.9em; color: #aaa;">${quest.description || "Active Quest"}</div>
+        `;
+        questList.appendChild(div);
+        questCount++;
+    });
+
+    // B. Implied Rescue Quests (Legacy)
     if (data.npcs) {
         data.npcs.forEach(npc => {
-            // Very simple heuristic: If they are in the dungeon (which implies Z=0 usually), they need saving.
-            // But we only get "nearby" NPCs or "on level" NPCs.
-            // Better: We should expose a 'quest_log' in the API state.
-            // For now, if we see them, we list them.
             if (npc.xyz[2] === 0 && npc.name !== "Dungeon Warden") {
                 const div = document.createElement('div');
                 div.className = 'interaction-item';
                 div.innerHTML = `
                     <div style="color: #ffa500; font-weight: bold;">Rescue ${npc.name}</div>
-                    <div style="font-size: 0.9em; color: #aaa;">They are trapped in the dungeon.</div>
+                    <div style="font-size: 0.9em; color: #aaa;">Trapped in dungeon</div>
                 `;
                 questList.appendChild(div);
                 questCount++;
@@ -499,7 +560,7 @@ async function fetchState() {
     }
 
     if (questCount === 0) {
-        questList.innerHTML = '<p style="color: #666; font-style: italic;">No active quests tracked.</p>';
+        questList.innerHTML = '<p style="color: #666; font-style: italic;">No active quests.</p>';
     }
 }
 
@@ -842,15 +903,13 @@ async function openChat(name, id) {
                     }
                 } // End useSkill
 
-            }); // End Wrapper (Implicit)
+                // Expose functions to global scope for HTML onclick access
+                window.openChat = openChat;
+                window.closeChat = closeChat;
+                window.sendChat = sendChat;
+                window.useSkill = useSkill;
+                window.interact = interact; // Defined inside
+                window.toggleMap = toggleMap;
+                try { window.resetGame = resetGame; } catch (e) { }
 
-            // Expose functions to global scope for HTML onclick access
-            window.openChat = openChat;
-            window.closeChat = closeChat;
-            window.sendChat = sendChat;
-            window.useSkill = useSkill;
-            // window.interact is tricky if interact logic was inside wrapper. Assuming interact is defined.
-            // If interact is missing, we will have another error, but blank screen will be fixed.
-            try { window.interact = interact; } catch (e) { }
-            try { window.toggleMap = toggleMap; } catch (e) { }
-            try { window.resetGame = resetGame; } catch (e) { }
+            }); // End Wrapper

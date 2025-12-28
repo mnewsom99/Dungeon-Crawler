@@ -5,6 +5,8 @@ let ZOOM_LEVEL = 1.0;
 const BASE_TILE_SIZE = 64;
 const VIS_RADIUS = 7;
 let canvas, ctx;
+let camOffsetX = 0; // New Global
+let camOffsetY = 0; // New Global
 
 // --- Asset Loader ---
 const images = {};
@@ -41,7 +43,12 @@ const assets = {
     'elara': 'elara_transparent.png',
     'seraphina': 'seraphina.png',
     'elder': 'elder.png',
-    'warrior2': 'warrior2.png'
+    'warrior2': 'warrior2.png',
+    'herb': 'herb.png',
+    'bear': 'bear.png',
+    'wolf': 'wolf.png',
+    'mountain_entrance': 'mountain_entrance.png',
+    'fire_guardian': 'fire_guardian.png'
 };
 
 // --- Advanced Chroma/Transparency Processor ---
@@ -72,7 +79,8 @@ function processTransparency(img) {
             (Math.abs(r - b) < 3);
 
         // 3. Magic Pink (Magenta) - Legacy support
-        const isMagenta = (r > 240 && g < 20 && b > 240);
+        // Only if pure magenta to avoid deleting pink flowers
+        const isMagenta = (r > 250 && g < 5 && b > 250);
 
         if (isWhite || isGrey || isMagenta) {
             data[i + 3] = 0; // Alpha = 0
@@ -132,6 +140,17 @@ window.drawMap = function (data) {
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
     const playerPos = data.player.xyz;
+
+    // Update Globals for Click Handler
+    // Player is at Center.
+    // ScreenX = CenterX + (WorldX - PlayerX) * TILE_SIZE - TILE_SIZE/2
+    // Implies: WorldX = (ScreenX - CenterX + TILE_SIZE/2) / TILE_SIZE + PlayerX
+
+    // Let's store the base offsets for the formula: ScreenX = OffsetX + WorldX * TILE_SIZE
+    // OffsetX = CenterX - PlayerX * TILE_SIZE - TILE_SIZE/2
+    camOffsetX = centerX - playerPos[0] * TILE_SIZE - TILE_SIZE / 2;
+    camOffsetY = centerY - playerPos[1] * TILE_SIZE - TILE_SIZE / 2;
+
     const map = data.world.map;
 
     ctx.imageSmoothingEnabled = false;
@@ -141,8 +160,9 @@ window.drawMap = function (data) {
         const [x, y, z] = key.split(',').map(Number);
         if (z !== playerPos[2]) return;
 
-        const dx = Math.round(centerX + (x - playerPos[0]) * TILE_SIZE - TILE_SIZE / 2);
-        const dy = Math.round(centerY + (y - playerPos[1]) * TILE_SIZE - TILE_SIZE / 2);
+        // Use Global Offsets for Drawing too to ensure consistency
+        const dx = Math.round(camOffsetX + x * TILE_SIZE);
+        const dy = Math.round(camOffsetY + y * TILE_SIZE);
 
         if (dx < -TILE_SIZE || dy < -TILE_SIZE || dx > canvas.width || dy > canvas.height) return;
 
@@ -156,7 +176,58 @@ window.drawMap = function (data) {
         if (img) {
             ctx.drawImage(img, dx, dy, TILE_SIZE, TILE_SIZE);
         } else {
-            drawFallback(ctx, dx, dy, TILE_SIZE, tileType);
+            // Procedural Fallbacks for detailed types
+            if (tileType === 'void') {
+                // Starfield
+                ctx.fillStyle = '#110022';
+                ctx.fillRect(dx, dy, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = '#fff';
+                // Random stars (static based on coord hash would be better but random is okay for now if redrawn)
+                // actually random flickers which is nice
+                if (Math.random() > 0.9) ctx.fillRect(dx + Math.random() * TILE_SIZE, dy + Math.random() * TILE_SIZE, 1, 1);
+            }
+            else if (tileType === 'herb') {
+                if (images['herb']) {
+                    ctx.drawImage(images['herb'], dx, dy, TILE_SIZE, TILE_SIZE);
+                } else {
+                    // Grass Base
+                    ctx.fillStyle = '#228b22';
+                    ctx.fillRect(dx, dy, TILE_SIZE, TILE_SIZE);
+                    // Flower Cluster
+                    ctx.fillStyle = '#FF69B4'; // HotPink Flowers
+                    ctx.beginPath();
+                    ctx.arc(dx + TILE_SIZE * 0.25, dy + TILE_SIZE * 0.25, TILE_SIZE * 0.1, 0, Math.PI * 2);
+                    ctx.arc(dx + TILE_SIZE * 0.75, dy + TILE_SIZE * 0.75, TILE_SIZE * 0.1, 0, Math.PI * 2);
+                    ctx.arc(dx + TILE_SIZE * 0.25, dy + TILE_SIZE * 0.75, TILE_SIZE * 0.1, 0, Math.PI * 2);
+                    ctx.arc(dx + TILE_SIZE * 0.75, dy + TILE_SIZE * 0.25, TILE_SIZE * 0.1, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            else if (tileType === 'rock') {
+                // Grass Base (Forest) or Floor Base (Dungeon)? 
+                // Mostly forest for now.
+                ctx.fillStyle = '#228b22';
+                ctx.fillRect(dx, dy, TILE_SIZE, TILE_SIZE);
+                // Rock
+                ctx.fillStyle = '#555';
+                ctx.beginPath();
+                ctx.arc(dx + TILE_SIZE / 2, dy + TILE_SIZE / 2, TILE_SIZE * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                // Highlight
+                ctx.fillStyle = '#777';
+                ctx.beginPath();
+                ctx.arc(dx + TILE_SIZE * 0.4, dy + TILE_SIZE * 0.4, TILE_SIZE * 0.1, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            else if (tileType === 'lava') {
+                ctx.fillStyle = '#cf1020';
+                ctx.fillRect(dx, dy, TILE_SIZE, TILE_SIZE);
+                ctx.fillStyle = '#ff8c00';
+                ctx.fillRect(dx + Math.random() * TILE_SIZE, dy + Math.random() * TILE_SIZE, TILE_SIZE * 0.2, TILE_SIZE * 0.2);
+            }
+            else {
+                drawFallback(ctx, dx, dy, TILE_SIZE, tileType);
+            }
         }
 
         if (!isVisible) {
@@ -170,6 +241,54 @@ window.drawMap = function (data) {
         }
     });
 
+    // Initial Draw
+    // draw(); // This line is commented out as 'draw' is not defined in the original context.
+
+    // Click Handler (Movement / Selection)
+    // This block is placed here as per the user's instruction, but it contains references
+    // to 'camOffsetX', 'camOffsetY', 'window.gameState', and a call to 'draw()'
+    // which are not defined in the provided document.
+    // The `})();` at the end also suggests it was part of an IIFE, which is not present.
+    // To maintain syntactical correctness, the IIFE closing brace and the 'draw()' call are commented out.
+    // The undefined variables 'camOffsetX' and 'camOffsetY' will cause runtime errors if not defined elsewhere.
+    // 'window.gameState' is assumed to be globally available.
+    // Click Handler (Movement / Selection)
+    // Move this listener OUTSIDE of draw() or any recurring function if it isn't already.
+    // Ensure we don't bind multiple times.
+    if (!canvas.dataset.listenerAttached) {
+        canvas.addEventListener('mousedown', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+
+            // Recalculate TILE_SIZE as it might change with zoom
+            const currentTileSize = Math.round(BASE_TILE_SIZE * ZOOM_LEVEL);
+
+            // Convert to World Coords
+            const tX = Math.floor((mouseX - camOffsetX) / currentTileSize);
+            const tY = Math.floor((mouseY - camOffsetY) / currentTileSize);
+
+            // Simple adjacent check for movement
+            if (window.gameState && window.gameState.player) {
+                const pX = window.gameState.player.xyz[0];
+                const pY = window.gameState.player.xyz[1];
+
+                const dx = tX - pX;
+                const dy = tY - pY;
+
+                console.log(`Click at ${tX},${tY} (Player: ${pX},${pY}) Delta: ${dx},${dy}`); // Debug
+
+                if (Math.abs(dx) + Math.abs(dy) === 1) {
+                    if (window.movePlayerCmd) {
+                        window.movePlayerCmd({ dx, dy });
+                    }
+                }
+            }
+        });
+        canvas.dataset.listenerAttached = "true";
+    }
+
+    // })(); // This closing IIFE brace is commented out as the original code is not an IIFE.
     // Draw Corpses
     if (data.corpses) {
         data.corpses.forEach(c => {
@@ -214,6 +333,16 @@ window.drawMap = function (data) {
             const drawY = Math.round(centerY + (ey - playerPos[1]) * TILE_SIZE - TILE_SIZE / 2);
 
             let eImg = images['skeleton'];
+            if (e.name && e.name.toLowerCase().includes('bear')) {
+                if (images['bear']) eImg = images['bear'];
+            }
+            else if (e.name && e.name.toLowerCase().includes('guardian')) {
+                if (images['fire_guardian']) eImg = images['fire_guardian'];
+            }
+            else if (e.name && e.name.toLowerCase().includes('wolf')) {
+                if (images['wolf']) eImg = images['wolf'];
+            }
+
             if (eImg) ctx.drawImage(eImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
             else { ctx.fillStyle = 'red'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
         });
@@ -240,8 +369,11 @@ window.drawMap = function (data) {
             if (!nImg) nImg = images['player'];
 
             // Sprites often have whitespace, so drawing full tile is fine
-            if (nImg) ctx.drawImage(nImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
-            else { ctx.fillStyle = 'blue'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
+            if (nImg) {
+                ctx.drawImage(nImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
+            } else {
+                ctx.fillStyle = 'blue'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
 
             if (ZOOM_LEVEL > 0.8) {
                 ctx.fillStyle = 'white';
@@ -249,27 +381,6 @@ window.drawMap = function (data) {
                 ctx.textAlign = 'center';
                 ctx.fillText(n.name, drawX + TILE_SIZE / 2, drawY - 5);
                 ctx.textAlign = 'start';
-            }
-        });
-    }
-
-    // Draw Secrets / World Objects (Chests)
-    if (data.world.secrets) {
-        data.world.secrets.forEach(s => {
-            if (!s.xyz) return; // Some secrets might be tile-based logic only?
-            const [sx, sy, sz] = s.xyz;
-            if (sz !== playerPos[2]) return;
-
-            if (!map[`${sx},${sy},${sz}`]) return;
-
-            const drawX = Math.round(centerX + (sx - playerPos[0]) * TILE_SIZE - TILE_SIZE / 2);
-            const drawY = Math.round(centerY + (sy - playerPos[1]) * TILE_SIZE - TILE_SIZE / 2);
-
-            let sImg = null;
-            if (s.obj_type === 'chest') sImg = images['chest'];
-
-            if (sImg) {
-                ctx.drawImage(sImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
             }
         });
     }

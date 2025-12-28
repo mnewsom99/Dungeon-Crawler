@@ -20,6 +20,7 @@ def roll_dice(dice_str: str) -> int:
     mod = int(modifier) if modifier else 0
     
     total = sum(random.randint(1, sides) for _ in range(count))
+    if sides == 20: print(f"DEBUG ROLL: {dice_str} -> {total} + {mod} = {total+mod}")
     return total + mod
 
 def calculate_hit(roll: int, ac: int) -> bool:

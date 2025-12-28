@@ -69,6 +69,40 @@ ITEM_TEMPLATES = {
         "properties": {"icon": "🌿"},
         "value": 0,
         "description": "A fragrant herb needed by the Alchemist."
+    },
+    # New Quest Materials
+    "titanium_fragment": {
+        "name": "Titanium Fragment",
+        "type": "quest",
+        "slot": None,
+        "properties": {"icon": "💎"},
+        "value": 200,
+        "description": "An incredibly hard metal shard."
+    },
+    "everburning_cinder": {
+        "name": "Everburning Cinder",
+        "type": "quest",
+        "slot": None,
+        "properties": {"icon": "🔥"},
+        "value": 150,
+        "description": "It feels warm to the touch."
+    },
+    "freezing_spike": {
+        "name": "Freezing Spike",
+        "type": "quest",
+        "slot": None,
+        "properties": {"icon": "❄️"},
+        "value": 150,
+        "description": "It never melts."
+    },
+    # Rewards
+    "potion_of_power": {
+        "name": "Potion of Power",
+        "type": "consumable",
+        "slot": None,
+        "properties": {"heal": 50, "buff": "str+2", "icon": "🍷"},
+        "value": 500,
+        "description": "A legendary brew that grants immense strength."
     }
 }
 

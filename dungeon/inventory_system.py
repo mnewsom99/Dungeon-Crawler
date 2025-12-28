@@ -64,12 +64,14 @@ class InventorySystem:
         """
         # Base Stats
         base_ac = 10
-        # Dex Bonus? (Assuming stats JSON has 'DEX' or 'Agility')
-        # dexterity = player.stats.get('Agility', 10)
-        # dex_mod = (dexterity - 10) // 2
-        # ac = base_ac + dex_mod
         
-        ac = base_ac
+        # Dex Bonus
+        stats = player.stats or {}
+        # Support both casing just in case (though we standardized on lowercase)
+        dex = stats.get('dex') or stats.get('DEX') or 10
+        dex_mod = (dex - 10) // 2
+        
+        ac = base_ac + dex_mod
         
         # Helper to get current weapon damage
         weapon_damage = "1d4" # Fists
@@ -85,7 +87,7 @@ class InventorySystem:
                     ac += int(props['defense'])
                 except:
                     pass
-                    
+            
             # Weapon
             if item.slot == 'main_hand' and 'damage' in props:
                 weapon_damage = props['damage']
@@ -94,8 +96,7 @@ class InventorySystem:
         player.armor_class = ac
         
         # Store weapon damage in stats so Combat can read it
-        # We need to ensure stats dict is mutable
-        stats_dict = dict(player.stats) if player.stats else {}
+        stats_dict = dict(player.stats or {})
         stats_dict['weapon_damage'] = weapon_damage
         player.stats = stats_dict
 
@@ -359,6 +360,30 @@ class InventorySystem:
             
         self.session.commit()
         return True
+
+    def remove_item_by_name(self, item_name, quantity=1):
+        """Removes QTY of item by Name (handling stacks)."""
+        # Find all instances
+        items = self.session.query(InventoryItem).filter_by(name=item_name).all()
+        if not items: return False
+        
+        remaining = quantity
+        for item in items:
+            if remaining <= 0: break
+            
+            avail = item.quantity or 1
+            take = min(avail, remaining)
+            
+            if item.quantity > take:
+                item.quantity -= take
+                flag_modified(item, "quantity")
+            else:
+                self.session.delete(item)
+            
+            remaining -= take
+            
+        self.session.commit()
+        return remaining == 0
 
     def sell_item(self, player, item_id):
         item = self.session.query(InventoryItem).filter_by(id=item_id, player=player).first()

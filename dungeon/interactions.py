@@ -23,8 +23,79 @@ class InteractionManager:
             
         elif action == "inspect" and target_type == "secret":
              return self._handle_inspect(target_index)
+
+        elif (action == "mine" or action == "gather") and target_type == "tile":
+             return self._handle_resource_gather(action, target_index)
              
         return "Invalid action."
+
+    def _handle_resource_gather(self, action, target_index):
+        try:
+            tx, ty, tz = map(int, target_index.split(','))
+        except:
+            return "Invalid target."
+            
+        # Check distance (Radius 1) - considering diagonals allowed for interaction
+        if abs(tx - self.player.x) > 1 or abs(ty - self.player.y) > 1:
+            return "Too far away."
+            
+        tile = self.session.query(MapTile).filter_by(x=tx, y=ty, z=tz).first()
+        if not tile: return "Nothing here."
+        
+        from .items import ITEM_TEMPLATES
+        from .rules import roll_dice
+        from .database import InventoryItem
+        
+        is_rock = (tile.tile_type == "rock")
+        is_herb = (tile.tile_type in ["flower_pot", "herb"])
+        
+        if not (is_rock or is_herb): return "Nothing to gather."
+        
+        skill = "mining" if is_rock else "herbalism"
+        item_key = "iron_ore" if is_rock else "mystic_herb"
+        depleted_type = "floor" if is_rock else "grass"
+        
+        # Town special: Alchemist flowers -> Mystic Herb
+        # Town special: Rock -> Iron Ore
+        
+        lvl = self.dm.get_skill_level(skill)
+        base_roll = roll_dice(20)
+        roll = base_roll + lvl
+        dc = 10 
+        
+        if roll >= dc:
+             template = ITEM_TEMPLATES.get(item_key)
+             if not template: return "Unknown resources."
+             
+             # Stacking Logic
+             existing = self.session.query(InventoryItem).filter_by(
+                 player=self.player, name=template['name'], is_equipped=False
+             ).first()
+             
+             if existing and existing.quantity < 50:
+                 existing.quantity += 1
+                 flag_modified(existing, "quantity")
+             else:
+                 self.session.add(InventoryItem(
+                    name=template['name'], item_type=template['type'], slot=template['slot'],
+                    properties=template['properties'], player=self.player, quantity=1
+                 ))
+                 
+             tile.tile_type = depleted_type
+             # Update visual map instantly in session? DM sends update next.
+             flag_modified(tile, "tile_type") 
+             self.session.commit()
+             
+             leveled, new_lvl = self.dm.award_skill_xp(skill, 10)
+             msg = f"Success! Gathered {template['name']}. (Rolled {base_roll}+{lvl}={roll})"
+             if leveled: msg += f" ({skill.title()} Level {new_lvl}!)"
+             else: msg += f" (+10 XP)"
+        else:
+             leveled, new_lvl = self.dm.award_skill_xp(skill, 2)
+             msg = f"Failed to gather. (Rolled {base_roll} + {lvl} Skill = {roll} vs DC {dc})"
+             if leveled: msg += f" ({skill.title()} Level {new_lvl}!)"
+             
+        return msg
 
     def _handle_loot(self, target_index):
         px, py, pz = self.player.x, self.player.y, self.player.z

@@ -39,7 +39,10 @@ class Player(Base):
     # Position
     x = Column(Integer, default=0)
     y = Column(Integer, default=0)
+    y = Column(Integer, default=0)
     z = Column(Integer, default=0)
+    
+    quest_state = Column(JSON, default={}) # Player's personal quest log/flags
     
     # Relationships
     inventory = relationship("InventoryItem", back_populates="player", cascade="all, delete-orphan")
@@ -97,6 +100,12 @@ class CombatEncounter(Base):
     
     # Relationship to monsters in this encounter
     monsters = relationship("Monster", back_populates="encounter")
+    
+    # Turn Management
+    phase = Column(String, default="move") # move, action, bonus
+    moves_left = Column(Integer, default=0)
+    actions_left = Column(Integer, default=0)
+    bonus_actions_left = Column(Integer, default=0)
 
 class Monster(Base):
     __tablename__ = 'monsters'

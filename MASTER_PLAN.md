@@ -16,24 +16,25 @@ The core hook is the "Agentic DM" - an AI (Ollama/Gemini) that generates dynamic
     - `ui.js`: React-less UI updates (Inventory, Stats, Chat). [Completed]
     - `main.js`: Input handling, state polling. [Completed]
 
-## 3. Recently Completed (v0.7 - "Combat Update")
-- **Combat System v2**: 
-    - Moved from flat actions to a **Traditional RPG Menu** (Root -> Submenus: Attack, Skills, Items).
-    - Added **Fog of War** logic to target selection (can't target what you can't see).
-    - Fixed UI event handling for robust mobile/click support.
-- **Interaction Layer**:
-    - Fixed `investigate` action to handle structured data (narrative + entity lists).
-    - Added popup notifications for Mining/Interacting.
+## 3. Recently Completed (v0.8 - "Flexible Combat Update")
+- **Flexible Combat System**:
+    - **Tabbed Interface**: Separated actions into Move (Green), Action (Red), and Bonus (Yellow) tabs.
+    - **Flexible Turn Order**: Players can Move, Attack, and use Bonus actions in *any order*.
+    - **Explicit End Turn**: Added a dedicated button to end the turn, removing confusing auto-end logic.
+- **Combat Logic Refactor**:
+    - **Enemy AI**: Enemies now perform pathfinding to move towards the player if out of range.
+    - **Victory Check**: Combat automatically ends when the last enemy falls (even if killed by an NPC).
+    - **Code Cleanup**: Refactored `combat.py` to use shared helper methods for movement and victory checks.
 - **Bug Fixes**:
-    - Resolved critical UI nesting issues in `ui.js`.
-    - Fixed backend/frontend variable mismatches (`enemy_list` vs `world.enemies`).
+    - Fixed "Double Move" on click issue.
+    - Fixed Combat UI filtering (only showing visible enemies).
 
 ## 4. Next Steps (Roadmap)
 ### Short Term
-- [ ] **Skills & Magic**: The UI component exists, but the "Skills" menu currently only has hardcoded placeholders. Needs a `SkillManager` backend.
-- [ ] **Consumables**: "Items" menu in combat needs to pull from actual Inventory `consumable` items.
-- [ ] **Enemy AI**: Make enemies smarter (move towards player, use special attacks).
+- [ ] **Skills & Magic**: The UI component exists, but the "Skills" menu currently only has hardcoded placeholders (Second Wind). Needs a `SkillManager` backend.
+- [ ] **Consumables**: "Items" menu in combat needs to pull from actual Inventory `consumable` items rather than just a hardcoded Potion button.
 - [ ] **Save/Load**: Validate the `dm.save()` mechanism robustly across sessions.
+
 
 ### Long Term
 - **Quests System**: A dedicated `quest_manager.py` to track multi-stage objectives.

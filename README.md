@@ -38,3 +38,8 @@ The game now features the Town of Oakhaven (Zone 1).
 *   `python tools/optimize_assets.py`: Resizes large assets to 32x32 for performance.
 *   `python tools/update_game.py`: Utility to fix NPC positions.
 *   `/gallery`: Browser tool to assign sprites to game objects.
+
+## 🔄 Recent Refactoring (v43/v37)
+*   **Modular Frontend**: Split monolithic `ui.js` into `ui_combat.js` and `ui_inventory.js` for better maintainability.
+*   **Modular Backend**: Extracted movement and logic from `dm.py` into `movement.py`.
+*   **Systems**: Improved Combat and Inventory systems with isolated logic.

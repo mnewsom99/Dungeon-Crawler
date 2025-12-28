@@ -78,17 +78,18 @@
     {
         "name": "Elder Aethelgard",
         "location": "Oakhaven Town",
-        "x": 2,
-        "y": 2,
+        "x": 0,
+        "y": 7,
         "z": 1,
-        "persona_prompt": "You are Elder Aethelgard, the wise and weary leader of Oakhaven.\nFacts:\n- Niece: Elara (Herbalist).\n- Brother: Gareth (Blacksmith).\n- History: The town was raided by the Dungeon Warden. Many were taken.\n- Role: You guide the hero to save the others.\n- Current State: Waiting for the return of the townsfolk.\n- Shop unlocks: As people return, tell the player their shops are open.",
+        "persona_prompt": "You are Elder Aethelgard, the wise leader of Oakhaven.\nFacts:\n- Niece: Elara. Brother: Gareth.\n- RECENT EVENT: The hero has successfully rescued Elara, Gareth, and Seraphina from the dungeon. You are extremely grateful.\n- NEW QUEST: The trade routes to the North are blocked by four ancient Elemental Dungeons (Fire, Ice, Earth, Air). Monsters are spilling out from them.\n- OFFER: If the hero clears these 4 dungeons, merchants will return to Oakhaven. You also promise to build the hero their own house in town as a reward.",
         "quest_state": {
-            "status": "active",
+            "status": "elemental_quest",
             "topics": [
-                "missing_villagers",
-                "history"
+                "north_forest",
+                "elemental_dungeons",
+                "house_reward"
             ],
-            "greeting": "Welcome to what remains of Oakhaven, traveler. My heart is heavy, for my people have been dragged into the abyss below. Have you seen my niece, Elara? Or my brother Gareth?"
+            "greeting": "Hero! My heart sings to see Gareth, Elara, and Seraphina safe again. You have saved our families. But... I must ask one more boon. The North Forest is overrun. Four Elemental Dungeons have awakened, blocking our trade routes. Clear them, and I shall build you a home here in Oakhaven myself!"
         }
     }
 ]

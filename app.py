@@ -3,6 +3,7 @@ from flask import Flask, render_template, jsonify, request
 from dungeon.dm import DungeonMaster
 
 app = Flask(__name__)
+# Force Reload Trigger v37 for Backend Modularization
 dm = DungeonMaster()
 
 @app.route('/')
@@ -101,9 +102,20 @@ def move_player():
         elif direction == 'east': dx = 1
         elif direction == 'west': dx = -1
     
-    new_pos, combat_msg = dm.move_player(dx, dy)
+    new_pos, result = dm.move_player(dx, dy)
     
-    narrative = combat_msg
+    narrative = result
+    events = []
+    
+    if isinstance(result, dict):
+        if "events" in result:
+            events = result["events"]
+            narrative = "You move..." # Fallback or look for text in events
+            # Try to find a text event to use as narrative
+            for e in events:
+                if e['type'] == 'text':
+                    narrative = e['message']
+                    break
     
     # Return updated stats after move
     state = dm.get_state_dict()
@@ -111,6 +123,7 @@ def move_player():
     return jsonify({
         "position": new_pos,
         "narrative": narrative,
+        "events": events,
         "stats": state["player"]
     })
 
@@ -172,12 +185,19 @@ def perform_action():
     action = data.get('action')
     
     if action == "investigate":
+        print(f"DEBUG: Player investigating at {dm.player.x},{dm.player.y}")
         result = dm.investigate_room()
         # result is now a dict {narrative, entities}
         narrative = result.get("narrative") if isinstance(result, dict) else result
         return jsonify({"narrative": narrative, "state": dm.get_state_dict()})
         
     return jsonify({"message": "Unknown action"}), 400
+
+@app.route('/api/stats/upgrade', methods=['POST'])
+def upgrade_stat():
+    data = request.json
+    msg = dm.upgrade_stat(data.get("stat"))
+    return jsonify({"message": msg, "state": dm.get_state_dict()})
 
 @app.route('/gallery')
 def gallery():
@@ -240,6 +260,20 @@ def assign_asset():
     except Exception as e:
         print(f"DEBUG: Error copying: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/debug/reset', methods=['POST', 'GET'])
+def debug_reset():
+    """Resets the game state (DB cleanup handled by DM init usually or we force it)."""
+    # For SQLite, deleting the file is one way, or dropping tables.
+    # DM logic usually handles creating if missing.
+    # Let's drop all tables and init.
+    from dungeon.database import Base, engine
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    
+    global dm
+    dm = DungeonMaster() # Re-init
+    return jsonify({"message": "World Reset Completed", "state": dm.get_state_dict()})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True)
