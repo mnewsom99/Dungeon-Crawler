@@ -7,11 +7,14 @@ from .inventory_system import InventorySystem
 from .world_sim import WorldSimulation
 from .movement import MovementSystem
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy.orm import joinedload
+from .gamedata import NPC_START_CONFIG, PLAYER_START_CONFIG
 import threading
 import queue
 
 class DungeonMaster:
     def __init__(self):
+        # self.lock removed; using scoped_session
         init_db() # Ensure tables exist
         self.session = get_session()
         self.inventory = InventorySystem(self.session)
@@ -28,49 +31,68 @@ class DungeonMaster:
         self._initialize_world()
 
     def equip_item(self, item_id):
-        return self.inventory.equip_item(self.player, item_id)
+        player = self.session.query(Player).first()
+        return self.inventory.equip_item(player, item_id)
         
     def unequip_item(self, item_id):
-        return self.inventory.unequip_item(self.player, item_id)
+        player = self.session.query(Player).first()
+        return self.inventory.unequip_item(player, item_id)
 
     def use_item(self, item_id):
-        return self.inventory.use_item(self.player, item_id)
+        player = self.session.query(Player).first()
+        return self.inventory.use_item(player, item_id)
 
     def take_loot(self, corpse_id, loot_id):
-        return self.inventory.take_loot(self.player, corpse_id, loot_id)
+        player = self.session.query(Player).first()
+        return self.inventory.take_loot(player, corpse_id, loot_id)
 
     def get_skill_level(self, skill):
         # Proxy to rules
-        return get_skill_level(self.player, skill)
+        player = self.session.query(Player).first()
+        return get_skill_level(player, skill)
 
     def award_skill_xp(self, skill, amount):
         # Proxy to rules
-        return award_skill_xp(self.player, skill, amount)
+        player = self.session.query(Player).first()
+        return award_skill_xp(player, skill, amount)
 
     def craft_item(self, recipe_id):
-        return self.inventory.craft_item(self.player, recipe_id)
+        player = self.session.query(Player).first()
+        return self.inventory.craft_item(player, recipe_id)
 
     def buy_item(self, template_id):
-        return self.inventory.buy_item(self.player, template_id)
+        player = self.session.query(Player).first()
+        return self.inventory.buy_item(player, template_id)
 
     def sell_item(self, item_id):
-        return self.inventory.sell_item(self.player, item_id)
+        player = self.session.query(Player).first()
+        return self.inventory.sell_item(player, item_id)
 
     def _initialize_world(self):
         # Ensure player exists
-        self.player = self.session.query(Player).first()
+        self.player = self.session.query(Player).options(joinedload(Player.inventory)).first()
         if not self.player:
-            print("DM: Creating new Hero...")
+            print(f"DM: Creating new Hero '{PLAYER_START_CONFIG['name']}'...")
+            cfg = PLAYER_START_CONFIG
             self.player = Player(
-                name="Generic Hero", 
-                hp_current=20, hp_max=20,
-                stats={"str": 14, "dex": 14, "con": 14, "int": 10, "wis": 10, "cha": 10},
-                x=0, y=0, z=1, # DEBUG: Start in Town
+                name=cfg['name'],
+                hp_current=cfg['hp_current'], hp_max=cfg['hp_max'],
+                stats=cfg['stats'],
+                x=cfg['start_pos']['x'], 
+                y=cfg['start_pos']['y'], 
+                z=cfg['start_pos']['z'],
                 quest_state={"active_quests": []}
             )
+            
             # Add default gear
-            self.session.add(InventoryItem(name="Training Sword", slot="main_hand", is_equipped=True, player=self.player))
-            self.session.add(InventoryItem(name="Cloth Tunic", slot="chest", is_equipped=True, player=self.player))
+            for item in cfg['inventory']:
+                self.session.add(InventoryItem(
+                    name=item['name'], 
+                    slot=item['slot'], 
+                    is_equipped=item['is_equipped'], 
+                    player=self.player
+                ))
+            
             self.session.add(self.player)
             
             # --- Generate Maps ---
@@ -82,18 +104,13 @@ class DungeonMaster:
             self.update_visited(self.player.x, self.player.y, self.player.z)
             
             # --- DEBUG: Auto-Rescue NPCs for Testing ---
-            # Move everyone to town immediately
-            gareth = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
-            if gareth: gareth.x, gareth.y, gareth.z = 10, 8, 1
-            
-            seraphina = self.session.query(NPC).filter(NPC.name.like("%Seraphina%")).first()
-            if seraphina: seraphina.x, seraphina.y, seraphina.z = -11, 9, 1
-            
-            elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
-            if elara: elara.x, elara.y, elara.z = -11, 8, 1 # Home
-            
-            elder = self.session.query(NPC).filter(NPC.name.like("%Elder%")).first()
-            if elder: elder.x, elder.y, elder.z = 0, 7, 1 # Town Hall
+            # Move everyone to town immediately based on config
+            for npc_key, coords in NPC_START_CONFIG.items():
+                npc = self.session.query(NPC).filter(NPC.name.like(f"%{npc_key}%")).first()
+                if npc:
+                    npc.x = coords['x']
+                    npc.y = coords['y']
+                    npc.z = coords['z']
             
             self.session.commit()
             
@@ -150,391 +167,23 @@ class DungeonMaster:
         """Clean robust movement logic (Delegated)."""
         return self.movement.move_player(dx, dy)
 
-    def _dead_move_player(self, dx, dy):
-        """Legacy code to be removed."""
-        # 1. Calculate Target
-        new_x = self.player.x + dx
-        new_y = self.player.y + dy
-        new_z = self.player.z
-        
-        print(f"DM: Move Request -> ({new_x}, {new_y}, {new_z})")
 
-        # 2. Check Map Collision
-        tile = self.session.query(MapTile).filter_by(x=new_x, y=new_y, z=new_z).first()
-        
-        # Auto-create wall if void (safety)
-        if not tile:
-            # If we are in 'void', assume wall? Or allow generation hook?
-            # For now, simplistic wall.
-            if new_z == 0: # Dungeon
-                 tile = MapTile(x=new_x, y=new_y, z=new_z, tile_type="wall", is_visited=True)
-                 self.session.add(tile)
-                 self.session.commit()
-                 return [self.player.x, self.player.y, self.player.z], "You bump into a dark wall."
-            # Town bounds handled by generation usually
-            if new_z == 1:
-                # North Gate check
-                # Town is approx -20 to 20 range.
-                if new_y < -20: 
-                    # Transition to North Forest (Z=2)
-                    self.teleport_player(0, 29, 2) # South end of Forest
-                    return [0, 29, 2], "*** You enter the North Forest ***"
 
-            return [self.player.x, self.player.y, self.player.z], "The path is blocked."
 
-        # Resource Gathering
-        if tile.tile_type in ["rock", "flower_pot"]:
-             from .items import ITEM_TEMPLATES
-             from .rules import roll_dice
-             
-             is_rock = (tile.tile_type == "rock")
-             skill = "mining" if is_rock else "herbalism"
-             item_key = "iron_ore" if is_rock else "mystic_herb"
-             depleted_type = "floor" if is_rock else "grass"
-             
-             lvl = self.get_skill_level(skill)
-             roll = roll_dice(20) + lvl
-             dc = 10 
-             
-             if roll >= dc:
-                 template = ITEM_TEMPLATES[item_key]
-                 
-                 # Stacking Logic
-                 existing = self.session.query(InventoryItem).filter_by(
-                     player=self.player, name=template['name'], is_equipped=False
-                 ).first()
-                 
-                 if existing and existing.quantity < 50:
-                     existing.quantity += 1
-                     flag_modified(existing, "quantity")
-                 else:
-                     self.session.add(InventoryItem(
-                        name=template['name'], item_type=template['type'], slot=template['slot'],
-                        properties=template['properties'], player=self.player, quantity=1
-                     ))
-                     
-                 tile.tile_type = depleted_type
-                 self.session.commit()
-                 
-                 leveled, new_lvl = self.award_skill_xp(skill, 10)
-                 msg = f"Success! Gathered {template['name']}."
-                 if leveled: msg += f" ({skill.title()} Level {new_lvl}!)"
-                 else: msg += f" (+10 XP)"
-             else:
-                 leveled, new_lvl = self.award_skill_xp(skill, 2)
-                 msg = f"Failed to gather. (Rolled {roll} vs DC {dc})"
-                 if leveled: msg += f" ({skill.title()} Level {new_lvl}!)"
-                 
-             return [self.player.x, self.player.y, self.player.z], msg
 
-        if tile.tile_type not in ["floor", "floor_wood", "door", "open_door", "grass", "bridge"]:
-             # Block: wall, wall_house, tree, water, anvil, shelf
-             if not tile.is_visited:
-                 tile.is_visited = True
-                 self.session.commit()
-             return [self.player.x, self.player.y, self.player.z], "You bump into a wall."
 
-        # 3. Check Door Transition (Tile Event)
-        if tile.tile_type == "door":
-            # Hacky Secret Door check (Dungeon -> Town)
-            print("DM: Door interaction")
-            if new_z == 0 and abs(new_x) <= 2 and new_y >= 28: # Dungeon Exit Range
-                self.teleport_player(0, 0, 1) # Town
-                
-                # --- TRIGGER: Elara Returns Home ---
-                # 1. Find Elara (likely following us or just in DB at Z=0)
-                elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
-                if elara:
-                    # Teleport close to entrance
-                    elara.x = 1
-                    elara.y = 1
-                    elara.z = 1
-                    
-                    # Set Schedule (Alchemist Shop Interior: -11, 8)
-                    qs = elara.quest_state or {}
-                    qs["status"] = "walking_home"
-                    qs["target_x"] = -11
-                    qs["target_y"] = 8
-                    elara.quest_state = qs
-                    from sqlalchemy.orm.attributes import flag_modified
-                    flag_modified(elara, "quest_state")
-                    self.session.add(elara)
-                
-                # --- TRIGGER: Auto-Rescue Others ---
-                # If player beat the dungeon, others escape too
-                
-                # Gareth -> Blacksmith (10, 8)
-                gareth = self.session.query(NPC).filter(NPC.name.like("%Gareth%")).first()
-                if gareth and gareth.z == 0:
-                    gareth.x, gareth.y, gareth.z = 1, 0, 1 # Start at town square
-                    qs = gareth.quest_state or {}
-                    qs["status"] = "walking_home"
-                    qs["target_x"] = 10
-                    qs["target_y"] = 8
-                    gareth.quest_state = qs
-                    flag_modified(gareth, "quest_state")
-                    self.session.add(gareth)
 
-                # Seraphina -> Alchemist (-11, 9)
-                seraphina = self.session.query(NPC).filter(NPC.name.like("%Seraphina%")).first()
-                if seraphina and seraphina.z == 0:
-                    seraphina.x, seraphina.y, seraphina.z = -1, 0, 1 # Start at town square
-                    qs = seraphina.quest_state or {}
-                    qs["status"] = "walking_home"
-                    qs["target_x"] = -11
-                    qs["target_y"] = 9
-                    seraphina.quest_state = qs
-                    flag_modified(seraphina, "quest_state")
-                    self.session.add(seraphina)
 
-                self.session.commit()
-                return [0, 0, 1], "*** You emerge into Oakhaven! ***"
-             
-            # Normal door (open it?)
-            tile.tile_type = "open_door" # Visual change?
-            # Treat as floor for now
-        
-        # 3b. Check Zone Transitions (Edges)
-        # Forest (Z=2) -> Town (Z=1) : South Edge (y > 28)
-        if new_z == 2 and new_y >= 29:
-             self.teleport_player(0, -18, 1) # North Gate of Town
-             return [0, -18, 1], "You travel south back to Oakhaven."
-             
-        # Town (Z=1) -> Forest (Z=2) : North Edge (y < -20)
-        # (Assuming town map allows walking north)
-        if new_z == 1 and new_y <= -19:
-             self.teleport_player(0, 28, 2) # South Road of Forest
-             return [0, 28, 2], "You head north into the deep forest."
-        
-        # 4. Check Monsters (Combat Trigger)
-        enemy = self.session.query(Monster).filter_by(x=new_x, y=new_y, z=new_z, is_alive=True).first()
-        if enemy:
-             # Start new Encounter
-             msg_data = self.combat.start_combat(enemy)
-             # If complex object return simple string for now, UI will handle state change
-             if isinstance(msg_data, dict):
-                 return [self.player.x, self.player.y, self.player.z], "Encounter Started!"
-             return [self.player.x, self.player.y, self.player.z], msg_data
 
-        if self.combat.is_active():
-            # Combat Movement Logic
-            # 1. Check Turn & Moves
-            encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
-            if not encounter:
-                 pass
-            elif encounter.turn_order[encounter.current_turn_index]["type"] != "player":
-                 return [self.player.x, self.player.y, self.player.z], "<b>It is not your turn!</b>"
-            elif encounter.moves_left <= 0:
-                 return [self.player.x, self.player.y, self.player.z], "No movement remaining!"
-            
-            # 2. Update Position (We know it's valid/empty from checks above)
-            self.player.x = new_x
-            self.player.y = new_y
-            self.player.z = new_z
-            self.update_visited(new_x, new_y, new_z) # Fog of war updates
-            
-            # 3. Decrement Counter (via combat)
-            res = self.combat.player_action("move") # returns {events: []}
-            self.session.commit()
-            
-            # Return events so frontend can play them (Enemy AI turns - actually no, enemy turns happen on End Phase now)
-            return [new_x, new_y, new_z], res # res has simple "Moved" message usually
 
-        # 5. Check NPCs (Blocking? Or Chat Trigger?)
-        npc = self.session.query(NPC).filter_by(x=new_x, y=new_y, z=new_z).first()
-        if npc:
-             # Attempt to displace NPC to make room
-             candidates = [(new_x+1, new_y), (new_x-1, new_y), (new_x, new_y+1), (new_x, new_y-1)]
-             moved_npc = False
-             
-             for cx, cy in candidates:
-                 if cx == self.player.x and cy == self.player.y: continue # Don't swap immediately
-                 
-                 # Check Wall/Void
-                 ct = self.session.query(MapTile).filter_by(x=cx, y=cy, z=new_z).first()
-                 if not ct or ct.tile_type in ["wall", "water", "void"]: continue
-                 
-                 # Check Occupancy
-                 occ = self.session.query(NPC).filter_by(x=cx, y=cy, z=new_z).first()
-                 if occ: continue
-                 occ_m = self.session.query(Monster).filter_by(x=cx, y=cy, z=new_z).first()
-                 if occ_m: continue
-                 
-                 # Move NPC
-                 npc.x = cx
-                 npc.y = cy
-                 moved_npc = True
-                 self.session.add(npc)
-                 break
-                 
-             if moved_npc:
-                 pass # NPC moved, but let's effectively Block the player for this turn so they see the push
-                 # OR: allow player to enter? "You squeeze past".
-                 # Let's Move Player INTO the tile since it's now free.
-             else:
-                 return [self.player.x, self.player.y, self.player.z], f"You bump into {npc.name}. (Blocked)"
 
-        # 6. Success - Commit Move
-        old_x, old_y, old_z = self.player.x, self.player.y, self.player.z
         
-        self.player.x = new_x
-        self.player.y = new_y
-        
-        # --- NPC AMBIENT MOVEMENT ---
-        try:
-             self.world_sim.process_npc_schedules()
-             
-             # --- MONSTER ROAMING & AGGRO ---
-             if new_z != 1: # Not in Safe Town
-                env_msg = self.world_sim.process_environment_turn()
-                if env_msg: 
-                    pass
-        except Exception as e:
-             print(f"Error processing NPCs/Env: {e}")
-        
-        self.session.commit() # Commit positions so NPC updates see new player pos
-        self.update_visited(new_x, new_y, new_z)
-        
-        narrative = "You move forward."
-        if new_z == 2: narrative = "You are wandering the North Forest."
-        if new_z == 0: narrative = "You step through the dungeon."
-        
-        # Check active combat again in case environment turn started it
-        if self.combat.is_active():
-            narrative = "Ambushed! Combat Started."
-            # Retrieve initial combat events to show
-            return [new_x, new_y, new_z], narrative
 
-        # --- NPC AI (Followers & Returning Home) ---
-        npcs = self.session.query(NPC).filter_by(z=old_z).all()
-        for f in npcs:
-            qs = f.quest_state or {}
-            status = qs.get("status")
-            
-            # A. Follower Logic
-            if status == "following":
-                dist = abs(f.x - old_x) + abs(f.y - old_y)
-                # Only move if not already at old pos (avoid stacking if multiple)
-                # And check reasonable distance (don't teleport across map)
-                if dist <= 5 and (f.x != old_x or f.y != old_y):
-                     # Check if old spot is empty (it should be, player just left)
-                     f.x = old_x
-                     f.y = old_y
-                     self.session.add(f)
-            
-            # B. Return Home Logic
-            elif "home" in qs and status != "following":
-                 hx, hy, hz = qs["home"]
-                 if f.z == hz and (f.x != hx or f.y != hy):
-                      # Determine direction
-                      dx = 0
-                      dy = 0
-                      if f.x < hx: dx = 1
-                      elif f.x > hx: dx = -1
-                      
-                      if f.y < hy: dy = 1
-                      elif f.y > hy: dy = -1
-                      
-                      # Try moving X then Y (Manhattan)
-                      # Check collision for next step
-                      target_x, target_y = f.x + dx, f.y
-                      if dx == 0: target_x, target_y = f.x, f.y + dy
-                      
-                      # Simple collision check
-                      # Avoid player
-                      if target_x == self.player.x and target_y == self.player.y: continue 
-                      
-                      # Avoid Walls
-                      ct = self.session.query(MapTile).filter_by(x=target_x, y=target_y, z=f.z).first()
-                      if ct and ct.tile_type not in ["wall", "water", "void"]:
-                           f.x = target_x
-                           f.y = target_y
-                           self.session.add(f)
-
-        # 7. Update Visibility
-        self.update_visited(new_x, new_y, new_z)
-        self.save()
-        
-        # 8. Return Narrative (Static + Dynamic Events)
-        old_room = self._generate_description(old_x, old_y, old_z)
-        new_room = self._generate_description(new_x, new_y, new_z)
-        
-        desc = ""
-        if new_room and new_room != old_room:
-             desc = f"You enter {new_room}."
-        elif new_room == "Dungeon Entrance" and not desc:
-             # Always show entrance name if just lingering? No, prevent spam.
-             pass
-
-        # Check Town Doors (Z=1)
-        if new_z == 1:
-            town_doors = {
-                (0, 4):  {"name": "Town Hall", "enter": (0, 1)},  # Move South to Enter
-                (8, 9):  {"name": "Blacksmith", "enter": (1, 0)}, # Move East to Enter
-                (-8, 9): {"name": "Alchemist", "enter": (-1, 0)}  # Move West to Enter
-            }
-            if (new_x, new_y) in town_doors:
-                info = town_doors[(new_x, new_y)]
-                edx, edy = info["enter"]
-                if dx == edx and dy == edy:
-                    desc = f"Entering {info['name']}..."
-                elif dx == -edx and dy == -edy:
-                    desc = f"Leaving {info['name']}..."
-                else:
-                    desc = f"At the entrance of {info['name']}." # Generic standing
-        
-        elif new_z == 2:
-             desc = "You are wandering the North Forest."
-                    
-        # Check for proximity events (Greetings)
-        # Check adjacent tiles (including diagonals? No, usually Manhattan or Chebyshev 1)
-        nearby_npcs = self.session.query(NPC).filter(
-            NPC.x.between(new_x-2, new_x+2),
-            NPC.y.between(new_y-2, new_y+2),
-            NPC.z == new_z
-        ).all()
-        
-        for n in nearby_npcs:
-            dist = max(abs(n.x - new_x), abs(n.y - new_y)) # Chebyshev
-            if dist <= 4: # Increased range for room entry (Room is 5x5)
-                greeting = ""
-                if "Elara" in n.name:
-                    qs = n.quest_state or {}
-                    status = qs.get("status", "captive")
-                    
-                    if status == "captive":
-                        greeting = "Elara calls out: 'Over here! I need your help!'"
-                    elif status == "escorting":
-                        # Silence is golden when following
-                        greeting = "" 
-                    elif status == "completed":
-                        # In town, maybe only say hi occasionally or silence
-                        greeting = ""
-                
-                elif "Gareth" in n.name: greeting = "Gareth hails you: 'Well met, traveler.'"
-                elif "Elder" in n.name: greeting = "The Elder waves a weary hand."
-                
-                if greeting:
-                    desc += f" <br><span style='color: #fdcb6e;'>{greeting}</span>"
-        
-        return [new_x, new_y, new_z], desc
-
-        return [new_x, new_y, new_z], desc
 
     def update_visited(self, cx, cy, cz):
         return self.movement.update_visited(cx, cy, cz)
 
-    def _dead_update_visited_legacy(self, cx, cy, cz):
-        tiles = self.session.query(MapTile).filter(
-            MapTile.x.between(cx-2, cx+2),
-            MapTile.y.between(cy-2, cy+2),
-            MapTile.z == cz
-        ).all()
-        
-        for t in tiles:
-            if not t.is_visited:
-                t.is_visited = True
-        self.session.commit()
+
 
     def prefetch_surroundings(self, center_pos):
         # Optimization: User requested to stop prefetching empty tiles
@@ -622,6 +271,10 @@ class DungeonMaster:
         
         # Room Description
         x, y, z = pl.x, pl.y, pl.z
+        
+        # 0. Force Update Visited (Clear Fog of War)
+        self.movement.update_visited(x, y, z)
+        
         room_name = self._generate_description(x, y, z) or "Unknown Area"
         
         found = []
@@ -749,8 +402,12 @@ class DungeonMaster:
 
     def _get_state_dict_impl(self):
         """Return a JSON-serializable state for the frontend."""
+        # Use fresh query to avoid DetachedInstanceError across threads
+        player = self.session.query(Player).first()
+        if not player: return {} # Should not happen
+
         map_data = {}
-        px, py, pz = self.player.x, self.player.y, self.player.z
+        px, py, pz = player.x, player.y, player.z
         
         # 1. Fetch visible tiles
         try:
@@ -781,6 +438,9 @@ class DungeonMaster:
         for m in corpses:
              corpse_list.append({"xyz": [m.x, m.y, m.z], "name": f"Dead {m.name}", "id": m.id})
 
+        from .quests import QuestManager, QUEST_DATABASE
+        qm = QuestManager(self.session, player)
+
         # NPCs
         npcs = self.session.query(NPC).filter(NPC.x != None, NPC.z == pz).all()
         npc_list = []
@@ -791,7 +451,58 @@ class DungeonMaster:
             elif "Gareth" in n.name: img = "warrior2.png"
             elif "Elder" in n.name: img = "elder.png"
             
-            npc_list.append({"xyz": [n.x, n.y, n.z], "name": n.name, "id": n.id, "asset": img})
+            # Quest Indicator Logic
+            q_status = "none"
+            # 1. Check for Turn Ins
+            for qid, q_data in QUEST_DATABASE.items():
+                if q_data.get("giver") in n.name: # Flexible Match
+                    # Is it active?
+                    status = qm.get_status(qid)
+                    if status == "active":
+                        if qm.can_complete(qid):
+                            q_status = "turn_in"
+                            break
+            
+            # 2. Check for New Quests (only if no turn in found)
+            if q_status == "none":
+                 for qid, q_data in QUEST_DATABASE.items():
+                    if q_data.get("giver") in n.name:
+                        status = qm.get_status(qid)
+                        if status == "available":
+                            # Check Requirements if defined in QUEST_DATABASE
+                            reqs = q_data.get("requirements", {})
+                            blocked = False
+                            
+                            # Level Check
+                            if "min_level" in reqs and self.player.level < reqs["min_level"]: blocked = True
+                            
+                            # Prerequisite Quest Check (Custom logic needed as it's not standard in DB yet?)
+                            # Actually let's just check the "active" list vs specific logic
+                            if qid == "titanium_hunt":
+                                # Gareth's second quest requires Iron Supply done
+                                if "iron_supply" not in self.player.quest_state.get("completed", []):
+                                    blocked = True
+                            
+                            if qid == "elemental_reagents":
+                                # Seraphina's second quest requires Herbal Remedy done
+                                if "herbal_remedy" not in self.player.quest_state.get("completed", []):
+                                    blocked = True
+
+                            if not blocked:
+                                 q_status = "available"
+                                 break
+            
+            # DEBUG
+            if q_status != "none":
+                print(f"DEBUG: NPC {n.name} has quest status: {q_status}")
+
+            npc_list.append({
+                "xyz": [n.x, n.y, n.z], 
+                "name": n.name, 
+                "id": n.id, 
+                "asset": img,
+                "quest_status": q_status 
+            })
             
         # Check actual combat state
         from .database import CombatEncounter
@@ -838,10 +549,11 @@ class DungeonMaster:
         secrets = []
         
         # 1. Fetch nearby tiles
+        # 1. Fetch nearby tiles
         nearby_tiles = self.session.query(MapTile).filter(
-            MapTile.x.between(self.player.x - 1, self.player.x + 1),
-            MapTile.y.between(self.player.y - 1, self.player.y + 1),
-            MapTile.z == self.player.z
+            MapTile.x.between(player.x - 1, player.x + 1),
+            MapTile.y.between(player.y - 1, player.y + 1),
+            MapTile.z == player.z
         ).all()
         
         # 2. Check for Interactables
@@ -869,7 +581,7 @@ class DungeonMaster:
                 })
 
         # Fetch Interactive Objects (Chests)
-        objs = self.session.query(WorldObject).filter_by(z=self.player.z).all()
+        objs = self.session.query(WorldObject).filter_by(z=player.z).all()
         for o in objs:
              # Basic Fog of War for Objects (prevent 'X-Ray' scanning)
              # Only send objects within ~5 tiles, but client will filter closer
@@ -894,11 +606,17 @@ class DungeonMaster:
         quest_log = []
         try:
             from .quests import QUEST_DATABASE
-            qs = self.player.quest_state or {}
+            qs = player.quest_state or {}
             
             # 1. New Dictionary System
             active_q = qs.get("active", {})
+            with open("debug_quest_log.txt", "w") as f:
+                 f.write(f"Active: {active_q}\n")
+                 f.write(f"DB Keys: {list(QUEST_DATABASE.keys())}\n")
+            
             if isinstance(active_q, dict):
+
+
                 for qid in active_q:
                     if qid in QUEST_DATABASE:
                         quest_log.append({
@@ -923,17 +641,20 @@ class DungeonMaster:
         except Exception as e:
             print(f"Quest Log Error state: {e}")
 
+
+
+
         return {
             "player": {
-                "xyz": [self.player.x, self.player.y, self.player.z],
-                "stats": self.player.stats,
-                "skills": self.player.skills or {},
-                "hp": self.player.hp_current,
-                "max_hp": self.player.hp_max,
-                "level": self.player.level or 1,
-                "xp": self.player.xp or 0,
-                "gold": self.player.gold or 0,
-                "quest_state": self.player.quest_state or {},
+                "xyz": [player.x, player.y, player.z],
+                "stats": player.stats,
+                "skills": player.skills or {},
+                "hp": player.hp_current,
+                "max_hp": player.hp_max,
+                "level": player.level or 1,
+                "xp": player.xp or 0,
+                "gold": player.gold or 0,
+                "quest_state": player.quest_state or {},
                 "quest_log": quest_log, # NEW friendliness
                 "inventory": [
                     {
@@ -945,7 +666,7 @@ class DungeonMaster:
                         "item_type": i.item_type,
                         "quantity": i.quantity
                     } 
-                    for i in self.player.inventory if i
+                    for i in player.inventory if i
                 ]
             },
             "world": {
@@ -969,24 +690,7 @@ class DungeonMaster:
     def teleport_player(self, x, y, z):
         return self.movement.teleport_player(x, y, z)
 
-    def _dead_update_visited(self, cx, cy, cz):
-        # Force visit surrounding
-        self.update_visited(x, y, z)
-        
-        # Handle Followers (Elara)
-        if z == 1:
-             elara = self.session.query(NPC).filter(NPC.name.like("%Elara%")).first()
-             if elara:
-                  qs = elara.quest_state or {}
-                  if qs.get("status") == "escorting":
-                       elara.x = x + 1
-                       elara.y = y
-                       elara.z = z
-                       elara.location = "Oakhaven Town"
-                       qs["status"] = "completed"
-                       elara.quest_state = qs
-                       flag_modified(elara, "quest_state")
-                       self.session.commit()
+
 
     def _generate_town(self, z):
         """Generate the Oakhaven Town map."""
@@ -997,7 +701,7 @@ class DungeonMaster:
         """Spend a point to upgrade a stat."""
         from sqlalchemy.orm.attributes import flag_modified
         
-        pl = self.player
+        pl = self.session.query(Player).first()
         stats = dict(pl.stats or {})
         points = stats.get('unspent_points', 0)
         
@@ -1031,3 +735,37 @@ class DungeonMaster:
         self.session.commit()
             
         return f"Upgraded {s_lower.upper()} to {stats[s_lower]}."
+
+    def choose_skill(self, skill_id):
+        """Learn a level-up feat."""
+        from sqlalchemy.orm.attributes import flag_modified
+        
+        valid_skills = ["cleave", "heavy_strike", "kick", "rage"]
+        if skill_id not in valid_skills:
+            return "Invalid skill."
+            
+        pl = self.session.query(Player).first()
+        current_skills = dict(pl.skills or {})
+        
+        # 1. Check Capacity (1 feat per 4 levels)
+        allowed_feats = pl.level // 4
+        if allowed_feats < 1:
+            return "You are not high enough level to learn a feat."
+            
+        # Count currently known feats
+        known_feats_count = sum(1 for s in valid_skills if s in current_skills)
+        
+        if known_feats_count >= allowed_feats:
+             return "You have no unspent feat points."
+             
+        # 2. Check if already known
+        if skill_id in current_skills:
+            return "You already know this skill."
+            
+        # Add Skill
+        current_skills[skill_id] = 1
+        pl.skills = current_skills
+        flag_modified(pl, "skills")
+        self.session.commit()
+        
+        return f"Learned {skill_id.replace('_', ' ').title()}!"

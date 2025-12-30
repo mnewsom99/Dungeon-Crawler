@@ -637,6 +637,110 @@ window.updateHeroStats = function (player) {
             }
         }
     });
+
+    // Check for Level 4 Feat
+    checkForLevelUpFeats(player);
+};
+
+// --- Level Up Feat Modal ---
+function checkForLevelUpFeats(player) {
+    if (!player || player.level < 4) return;
+
+    // Check Feat Capacity (Every 4 levels)
+    const allowed = Math.floor(player.level / 4);
+
+    // Check currently known feats
+    const skills = player.skills || {};
+    const feats = ['cleave', 'heavy_strike', 'kick', 'rage'];
+    const knownCount = feats.filter(f => skills[f]).length;
+
+    // If we have room for a feat
+    if (knownCount < allowed) {
+        if (document.getElementById('feat-modal')) return; // Already showing
+
+        console.log("TRIGGERING LEVEL UP FEAT SELECTION");
+
+        const modal = document.createElement('div');
+        modal.id = 'feat-modal';
+        modal.style.position = 'fixed';
+        modal.style.top = '0';
+        modal.style.left = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.background = 'rgba(0,0,0,0.85)';
+        modal.style.zIndex = '9999';
+        modal.style.display = 'flex';
+        modal.style.justifyContent = 'center';
+        modal.style.alignItems = 'center';
+
+        // Helper to generate card
+        const renderCard = (id, name, type, desc, color) => {
+            const isKnown = !!skills[id];
+            const style = isKnown ? "opacity:0.4; pointer-events:none; border:1px solid #333;" : "cursor:pointer; border:1px solid #444;";
+            const bg = isKnown ? "#111" : "#222";
+            const click = isKnown ? "" : `onclick="selectSkill('${id}')"`;
+            const badge = isKnown ? '<span style="color:#fff; background:#444; padding:2px 5px; font-size:0.7em;">KNOWN</span>' : '';
+
+            return `
+                <div class="feat-card" ${click} style="padding: 10px; background: ${bg}; ${style} position:relative;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <strong style="color: ${color};">${name} (${type})</strong>
+                        ${badge}
+                    </div>
+                    <div style="font-size: 0.9em; color: #aaa;">${desc}</div>
+                </div>
+            `;
+        };
+
+        const content = document.createElement('div');
+        content.style.background = '#1a0a0a';
+        content.style.border = '2px solid #d4af37';
+        content.style.padding = '20px';
+        content.style.width = '600px';
+        content.style.textAlign = 'center';
+        content.style.color = '#fff';
+        content.innerHTML = `
+            <h2 style="color: #ffd700; margin-top: 0;">Level ${player.level} Reached!</h2>
+            <p style="color: #ccc;">You have honed your skills. Select a new feat (${knownCount}/${allowed}).</p>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px; text-align: left;">
+                ${renderCard('cleave', '🛑 Cleave', 'Action', 'Strike all enemies within reach.', '#f55')}
+                ${renderCard('heavy_strike', '⚔ Heavy Strike', 'Action', 'Massive damage to one target.', '#f55')}
+                ${renderCard('kick', '👢 Kick', 'Bonus', 'Knockdown enemy (Stun).', '#fa0')}
+                ${renderCard('rage', '😡 Rage', 'Bonus', '+2 Damage for 2 turns.', '#f00')}
+            </div>
+        `;
+
+        modal.appendChild(content);
+        document.body.appendChild(modal);
+
+        // Hover effects
+        modal.querySelectorAll('.feat-card').forEach(c => {
+            if (!c.style.pointerEvents.includes('none')) {
+                c.onmouseenter = () => c.style.borderColor = '#d4af37';
+                c.onmouseleave = () => c.style.borderColor = '#444';
+            }
+        });
+    }
+}
+
+window.selectSkill = async function (skillId) {
+    if (!confirm(`Are you sure you want to learn ${skillId.replace('_', ' ').toUpperCase()}?`)) return;
+
+    try {
+        const res = await fetch('/api/skills/choose', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skill_id: skillId })
+        });
+        const data = await res.json();
+
+        if (data.message) {
+            const m = document.getElementById('feat-modal');
+            if (m) m.remove();
+            alert(data.message);
+        }
+        window.fetchState();
+    } catch (e) { console.error(e); }
 };
 
 window.upgradeStat = async function (statName) {
@@ -679,4 +783,37 @@ window.performTileAction = async function (action, targetId) {
         if (data.narrative && window.updateLog) window.updateLog(data.narrative);
         window.fetchState();
     } catch (e) { console.error(e); }
+};
+
+window.updateQuestList = function (data) {
+    const listEl = document.getElementById('quest-list');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    // data.player.quest_log is the source of truth
+    const quests = (data.player && data.player.quest_log) ? data.player.quest_log : [];
+    console.log("DEBUG: UI received quests:", quests);
+
+    if (quests.length === 0) {
+        listEl.innerHTML = '<p style="color: #666; font-style: italic;">No active quests.</p>';
+        return;
+    }
+
+    quests.forEach(q => {
+        const div = document.createElement('div');
+        div.className = 'interaction-item';
+        div.style.borderLeft = "3px solid #ffd700";
+        div.style.marginBottom = "5px";
+        div.style.padding = "5px";
+        div.style.background = "#221100";
+
+        const title = q.title || q;
+        const desc = q.description || "Active Quest";
+
+        div.innerHTML = `
+            <div style="color: #ffd700; font-weight: bold;">${title}</div>
+            <div style="font-size: 0.9em; color: #aaa;">${desc}</div>
+        `;
+        listEl.appendChild(div);
+    });
 };

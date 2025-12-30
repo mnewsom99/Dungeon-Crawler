@@ -49,9 +49,10 @@ class CombatSystem:
         participants = []
         
         # Player Init
-        p_stats = self.dm.player.stats or {"dex": 10}
+        player = self.session.query(Player).first()
+        p_stats = player.stats or {"dex": 10}
         p_init = roll_dice(20) + self._get_modifier(p_stats.get("dex", 10))
-        participants.append({"type": "player", "id": self.dm.player.id, "init": p_init, "name": "You"})
+        participants.append({"type": "player", "id": player.id, "init": p_init, "name": "You"})
         
         # Enemy Init
         for m in room_monsters:
@@ -90,10 +91,17 @@ class CombatSystem:
         self.session.add(encounter)
         self.session.commit()
         
-        # Link monsters
+        # Link monsters and REVEAL them
+        from .database import MapTile
         for m in room_monsters:
             m.encounter_id = encounter.id
-            m.state = "combat" # Ensure state is updated so frontend sees them as targets
+            m.state = "combat"
+            
+            # Reveal Monster Position
+            tile = self.session.query(MapTile).filter_by(x=m.x, y=m.y, z=m.z).first()
+            if tile and not tile.is_visited:
+                tile.is_visited = True
+                
         self.session.commit()
         
         # 6. Initial Turn Check
@@ -110,8 +118,33 @@ class CombatSystem:
              
         return {"events": events}
 
+    def _get_nearest_enemy(self, encounter):
+        """Helper to find nearest enemy in encounter."""
+        monsters = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
+        if not monsters: return None
+        
+        # Sort by distance
+        player = self.session.query(Player).first()
+        monsters.sort(key=lambda m: max(abs(m.x - player.x), abs(m.y - player.y)))
+        return monsters[0]
+
     def player_action(self, action_type, target_id=None):
+        """Wrapper for player action."""
+        # No lock needed (scoped_session)
+        try:
+            return self._player_action_impl(action_type, target_id)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"events": [{"type": "text", "message": f"Error: {str(e)}"}]}
+
+    def _dist(self, a, b):
+        return max(abs(a.x - b.x), abs(a.y - b.y))
+
+    def _player_action_impl(self, action_type, target_id=None):
         """Execute player turn phase-step."""
+        player = self.session.query(Player).first()
+
         encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
         if not encounter:
             return {"events": [{"type": "text", "message": "No active combat."}]}
@@ -131,7 +164,34 @@ class CombatSystem:
             return {"events": events}
 
         # --- ACTION LOGIC ---
-        if action_type == "move":
+        if action_type == 'attack':
+            if encounter.actions_left <= 0:
+                return {"events": [{"type": "text", "message": "No actions left."}]}
+            
+            # Target specific or nearest
+            target = None
+            if target_id:
+                try:
+                    t_id = int(target_id)
+                    target = next((m for m in encounter.monsters if m.id == t_id and m.is_alive), None)
+                except ValueError:
+                    target = None
+            
+            if not target:
+                target = self._get_nearest_enemy(encounter)
+            
+            if not target: return {"events": [{"type": "text", "message": "No enemy in range."}]}
+                
+            dist = self._dist(player, target)
+            if dist > 1.5:
+                 return {"events": [{"type": "text", "message": "Target is too far away."}]}
+                 
+            encounter.actions_left -= 1
+            result_events = self._resolve_player_attack(target)
+            self.session.commit()
+            return {"events": result_events}
+
+        elif action_type == "move":
             if encounter.moves_left <= 0:
                 return {"events": [{"type": "text", "message": "No movement remaining!"}]}
             
@@ -139,7 +199,167 @@ class CombatSystem:
             # Note: Coordinate update is in DM.py
             pass 
 
-        elif action_type in ["attack"]:
+        elif action_type == 'heavy_strike':
+             if encounter.actions_left <= 0:
+                 return {"events": [{"type": "text", "message": "No actions left."}]}
+             
+             # Target specific or nearest
+             target = None
+             target = None
+             if target_id:
+                 try:
+                     t_id = int(target_id)
+                     target = next((m for m in encounter.monsters if m.id == t_id and m.is_alive), None)
+                 except ValueError:
+                     target = None
+             
+             if not target:
+                 target = self._get_nearest_enemy(encounter)
+                 
+             if not target: return {"events": [{"type": "text", "message": "No enemy in range."}]}
+             
+             # Heavy Strike Logic
+             encounter.actions_left -= 1
+             events.append({"type": "text", "message": f"You wind up for a HEAVY STRIKE against {target.name}!"})
+             
+             p_stats = self.dm.player.stats or {"str": 10}
+             str_mod = self._get_modifier(p_stats.get("str", 10))
+             prof_bonus = 2 # Assuming player proficiency bonus is 2
+             
+             # Roll to Hit
+             hit_roll = roll_dice(20) + str_mod + prof_bonus
+             if hit_roll >= target.armor_class:
+                 dmg = roll_dice(10) + str_mod # D10 + STR
+                 # Extra Heavy Damage (+STR again basically, or 1.5x)
+                 dmg += str_mod # Additional damage from heavy strike
+                 
+                 # Rage Bonus
+                 props = self.dm.player.properties or {}
+                 if props.get("rage_turns", 0) > 0:
+                     dmg += 2
+                     
+                 target.hp_current -= dmg
+                 events.append({"type": "anim", "actor": "player", "anim": "attack"})
+                 events.append({"type": "popup", "title": f"SMASH! {dmg} DMG", "content": "Critical Impact!", "duration": 1500})
+                 events.append({"type": "text", "message": f"You CRUSH {target.name} for {dmg} damage!"})
+                 
+                 if target.hp_current <= 0:
+                     target.is_alive = False
+                     target.state = "dead"
+                     self.dm.player.xp += 50 # Assuming XP gain for heavy strike kill
+                     self._generate_loot(target)
+                     events.append({"type": "text", "message": f"{target.name} is obliterated!"})
+                     events.extend(self._check_victory(encounter))
+             else:
+                 events.append({"type": "popup", "title": "MISS!", "content": "Swung too wide!", "color": "#aa0", "duration": 1000})
+                 events.append({"type": "text", "message": f"You miss {target.name} with the heavy swing."})
+                 
+             self.session.commit()
+             return {"events": events}
+
+        elif action_type == 'cleave':
+             if encounter.actions_left <= 0: return {"events": [{"type": "text", "message": "No actions left."}]}
+             
+             encounter.actions_left -= 1
+             events.append({"type": "text", "message": "You sweep your weapon in a wide arc! (Cleave)"})
+             
+             p_stats = self.dm.player.stats or {"str": 10}
+             str_mod = self._get_modifier(p_stats.get("str", 10))
+             prof_bonus = 2 # Assuming player proficiency bonus is 2
+
+             # Find all adjacent (within 1.5 units, effectively adjacent squares)
+             enemies = [m for m in encounter.monsters if m.is_alive and self._dist(self.dm.player, m) <= 1.5]
+             
+             if not enemies:
+                 events.append({"type": "text", "message": "You hit nothing but air."})
+             else:
+                 for target in enemies:
+                     hit = roll_dice(20) + str_mod + prof_bonus
+                     if hit >= target.armor_class:
+                         dmg = roll_dice(8) + str_mod
+                         # Rage Bonus
+                         props = self.dm.player.properties or {}
+                         if props.get("rage_turns", 0) > 0: dmg += 2
+                         
+                         target.hp_current -= dmg
+                         events.append({"type": "text", "message": f"Hit {target.name} for {dmg}."})
+                         if target.hp_current <= 0:
+                             target.is_alive = False
+                             target.state = "dead"
+                             self.dm.player.xp += 50 # Assuming XP gain for cleave kill
+                             self._generate_loot(target)
+                             events.append({"type": "text", "message": f"{target.name} falls!"})
+                     else:
+                         events.append({"type": "text", "message": f"Missed {target.name}."})
+                 
+                 # Victory Check once after sweep
+                 events.extend(self._check_victory(encounter))
+                 
+             self.session.commit()
+             return {"events": events}
+
+        elif action_type == 'kick':
+             if encounter.bonus_actions_left <= 0: return {"events": [{"type": "text", "message": "No bonus actions left."}]}
+             
+             target = None
+             if target_id:
+                 try:
+                     t_id = int(target_id)
+                     target = next((m for m in encounter.monsters if m.id == t_id and m.is_alive), None)
+                 except ValueError:
+                     target = None
+                 
+             if not target:
+                 target = self._get_nearest_enemy(encounter)
+                 
+             if not target or self._dist(self.dm.player, target) > 1.5: # Must be adjacent
+                 return {"events": [{"type": "text", "message": "No enemy close enough to kick."}]}
+             
+             encounter.bonus_actions_left -= 1
+             
+             p_stats = self.dm.player.stats or {"str": 10}
+             str_mod = self._get_modifier(p_stats.get("str", 10))
+
+             # Contest: Player STR (Athletics) vs DC 12
+             athletics = roll_dice(20) + str_mod # +STR mod
+             dc = 12 # Fixed DC for simplicity or Target STR? Let's use Fixed DC + Target Size Mod if we had it.
+             
+             if athletics >= dc:
+                 # Success
+                 events.append({"type": "text", "message": f"You KICK {target.name}! <span style='color:orange'>STUNNED!</span> <span style='font-size:0.8em; color:#888'>(Rolled {athletics} vs DC {dc})</span>"})
+                 events.append({"type": "popup", "title": "KNOCKDOWN!", "content": "Enemy Stunned", "duration": 1500, "color": "#fa0"})
+                 
+                 # Apply Stun
+                 # We need a way to track status. Assuming simple "stunned" state or properties?
+                 # Monster doesn't have "properties" column in models shown.
+                 # Re-use 'state'? 'combat' is default.
+                 # Let's use 'abilities' list to add 'stunned'? No, that's static capabilities.
+                 # Let's add to 'metadata' if it existed? No.
+                 # Let's use 'state' = 'stunned'.
+                 target.state = 'stunned'
+                 # Note: Need to handle 'stunned' in enemy turn logic to skip turn.
+             else:
+                 events.append({"type": "text", "message": f"You try to kick {target.name}, but they hold firm."})
+                 
+             # self.dm.save() # Removed, will commit at end of player_action
+             return {"events": events}
+
+        elif action_type == 'rage':
+             if encounter.bonus_actions_left <= 0: return {"events": [{"type": "text", "message": "No bonus actions left."}]}
+             encounter.bonus_actions_left -= 1
+             
+             events.append({"type": "text", "message": "You ROAR with primal fury! (+2 DMG)"})
+             events.append({"type": "anim", "actor": "player", "anim": "buff"}) # visual?
+             
+             props = dict(self.dm.player.properties or {})
+             props["rage_turns"] = 2
+             self.dm.player.properties = props
+             flag_modified(self.dm.player, "properties")
+             
+             # self.dm.save() # Removed, will commit at end of player_action
+             return {"events": events}
+
+        elif action_type == "attack":
             if encounter.actions_left <= 0:
                 return {"events": [{"type": "text", "message": "Action already spent!"}]}
 
@@ -207,6 +427,10 @@ class CombatSystem:
         return events
 
     def _cycle_turn(self, encounter):
+        # Safety Check: Are we already victorious?
+        if self._check_victory_quiet(encounter):
+             return [{"type": "text", "message": "Combat Over."}]
+
         encounter.current_turn_index = (encounter.current_turn_index + 1) % len(encounter.turn_order)
         
         # Reset Stats for New Actor
@@ -296,7 +520,16 @@ class CombatSystem:
         
         if total_hit >= enemy.armor_class:
             dmg = roll_dice(8) + str_mod
+            
+            # OBSIDIAN SENTINEL: High Defense
+            if enemy.name == "Obsidian Sentinel":
+                dmg = max(1, dmg // 2)
+                events.append({"type": "text", "message": "<i style='color:#777'>Your weapon glances off the obsidian armor!</i>"})
+
+            print(f"DEBUG: Applying {dmg} damage to {enemy.name} (ID: {enemy.id}). HP before: {enemy.hp_current}")
             enemy.hp_current -= dmg
+            print(f"DEBUG: HP after: {enemy.hp_current}")
+            flag_modified(enemy, "hp_current") # Force SQLAlchemy to notice (paranoid)
             
             # Check Death
             if enemy.hp_current <= 0:
@@ -304,6 +537,13 @@ class CombatSystem:
                 enemy.state = "dead"
                 self.dm.player.xp += 50
                 
+                # SULFUR BAT: Volatile Explosion (Death Rattle)
+                if enemy.name == "Sulfur Bat":
+                     expl_dmg = roll_dice(6)
+                     self.dm.player.hp_current = max(0, self.dm.player.hp_current - expl_dmg)
+                     events.append({"type": "anim", "actor": "enemy", "anim": "attack"}) # Explosion anim?
+                     events.append({"type": "text", "message": f"The <span style='color:yellow'>Sulfur Bat</span> EXPLODES for <b>{expl_dmg}</b> fire damage!"})
+
                 # --- QUEST HOOK ---
                 try:
                     from .quests import QuestManager
@@ -316,8 +556,6 @@ class CombatSystem:
                 # Generate Loot
                 self._generate_loot(enemy)
                 flag_modified(enemy, "loot")
-                
-                events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span>"})
                 
                 events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span>"})
             else:
@@ -372,29 +610,59 @@ class CombatSystem:
                 steps += 1
                 current_dist = max(abs(actor.x - target_x), abs(actor.y - target_y))
             else:
-                # Try only ONE axis if diagonal blocked
+                # Try only ONE axis if diagonal blocked, OR try alternate axis if straight blocked
+                alt_moves = []
                 if dx != 0 and dy != 0:
-                     # Try X only
-                     new_x = actor.x + dx
-                     new_y = actor.y
-                     # Re-check (Simplified generic check)
-                     if not (new_x == self.dm.player.x and new_y == self.dm.player.y):
-                         actor.x = new_x 
+                     alt_moves.append((dx, 0)) # Try X only
+                     alt_moves.append((0, dy)) # Try Y only
+                elif dx != 0:
+                     alt_moves.append((0, 1))
+                     alt_moves.append((0, -1))
+                elif dy != 0:
+                     alt_moves.append((1, 0))
+                     alt_moves.append((-1, 0))
+                
+                found_alt = False
+                for adx, ady in alt_moves:
+                     anx, any_ = actor.x + adx, actor.y + ady
+                     
+                     # Simple Block Check (Copy of above)
+                     ablocked = False
+                     if anx == self.dm.player.x and any_ == self.dm.player.y: ablocked = True
+                     elif self.session.query(Monster).filter_by(x=anx, y=any_, z=actor.z, is_alive=True).first(): ablocked = True
+                     
+                     if not ablocked:
+                         actor.x = anx
+                         actor.y = any_
                          steps += 1
                          current_dist = max(abs(actor.x - target_x), abs(actor.y - target_y))
                          moved = True
-                     # Else Try Y...
-                else:
-                    break # Blocked
+                         found_alt = True
+                         break
+                
+                if not found_alt:
+                    break # Truly blocked
 
         if moved: 
             self.session.add(actor)
             self.session.flush() # CRITICAL: Update 'x/y' in transaction so next actor sees it
         return moved
         
+    def _check_victory_quiet(self, encounter):
+        """Boolean check for victory (no events)."""
+        alive_count = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).count()
+        if alive_count == 0:
+            encounter.is_active = False
+            self.session.commit()
+            return True
+        return False
+
     def _check_victory(self, encounter):
         """Checks if all monsters are dead and ends combat if so."""
-        alive_monsters = [m for m in encounter.monsters if m.is_alive]
+        # Query directly to ensure we aren't using stale 'encounter.monsters' list from memory
+        # alive_monsters = [m for m in encounter.monsters if m.is_alive]
+        alive_monsters = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
+        
         events = []
         if not alive_monsters:
             encounter.is_active = False
@@ -462,9 +730,28 @@ class CombatSystem:
             
         return events
 
+    def _has_equipped_effect(self, effect_name):
+        player = self.dm.player
+        if not player.inventory: return False
+        for item in player.inventory:
+            if item.is_equipped and item.properties and item.properties.get("effect") == effect_name:
+                return True
+        return False
+
     # --- ENEMY TURN ---
     def _enemy_turn(self, enemy):
+        from .database import CombatEncounter # Ensure import
         events = []
+        
+        # 1. Check Stunned State
+        if enemy.state == "stunned":
+            events.append({"type": "text", "message": f"<span style='color:orange'>{enemy.name} is STUNNED and skips their turn!</span>"})
+            events.append({"type": "popup", "title": "STUNNED", "content": "Turn Skipped", "duration": 1500, "color": "#fa0"})
+            
+            # Recover from stun
+            enemy.state = "combat" 
+            return events
+
         player = self.dm.player
         dist = max(abs(enemy.x - player.x), abs(enemy.y - player.y))
         attack_range = 1.5
@@ -476,31 +763,65 @@ class CombatSystem:
              dist = max(abs(enemy.x - player.x), abs(enemy.y - player.y)) # Recalc
 
         # ACTION
-        if dist <= attack_range:
-            events.append({"type": "anim", "actor": "enemy", "anim": "attack"})
+        if dist <= attack_range or (enemy.name == "Magma Weaver" and dist <= 4):
+            # Advanced AI Checks
+            executed_special = False
             
-            # Attack
-            str_mod = self._get_modifier(enemy.stats.get("str", 10))
-            total_hit = roll_dice(20) + str_mod
-            
-            if total_hit >= player.armor_class:
-                dmg = roll_dice(6) + str_mod
-                player.hp_current = max(0, player.hp_current - dmg)
-                events.append({"type": "text", "message": f"{enemy.name} hits you for <span style='color:red'>{dmg}</span> dmg!"})
-                events.append({"type": "popup", "title": "HIT", "content": f"-{dmg} HP", "duration": 1000})
+            # MAGMA WEAVER: Molten Web (Range 4, 30% Chance)
+            if enemy.name == "Magma Weaver" and roll_dice(100) < 30:
+                 events.append({"type": "text", "message": f"<b style='color:darkorange'>Magma Weaver</b> sprays a <span style='color:orangered'>Molten Web</span>!"})
+                 events.append({"type": "anim", "actor": "enemy", "anim": "attack"}) # Need web anim?
+                 player.hp_current = max(0, player.hp_current - 5)
+                 events.append({"type": "popup", "title": "UNKINDLED", "content": "You are webbed!", "duration": 2000})
+                 
+                 encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+                 if encounter:
+                      encounter.moves_left = 0
+                      events.append({"type": "text", "message": "The hardening lava prevents you from moving!"})
+                 executed_special = True
+
+            # CINDER HOUND: Burning Aura (Passive Trigger on Attack)
+            if enemy.name == "Cinder-Hound" and dist <= 1.5:
+                 if self._has_equipped_effect("fire_resist"):
+                     events.append({"type": "text", "message": f"Your Phoenix Shield absorbs the Cinder-Hound's heat!"})
+                 else:
+                     burn_dmg = roll_dice(4)
+                     player.hp_current = max(0, player.hp_current - burn_dmg)
+                     events.append({"type": "text", "message": f"The <span style='color:orange'>Cinder-Hound's</span> heat burns you for {burn_dmg}!"})
+
+            if not executed_special and dist <= 1.5:
+                events.append({"type": "anim", "actor": "enemy", "anim": "attack"})
                 
-                if player.hp_current == 0:
-                    # Player Death
-                    events.append({"type": "popup", "title": "DEFEAT", "content": "You have fallen.", "duration": 4000})
-                    self.dm.teleport_player(0,0,1)
-                    player.hp_current = player.hp_max
-                    # Reset Encounter
-                    encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
-                    if encounter: encounter.is_active = False
-            else:
-                 events.append({"type": "text", "message": f"{enemy.name} misses."})
+                # Attack
+                stats = enemy.stats or {}
+                str_mod = self._get_modifier(stats.get("str", 10))
+                total_hit = roll_dice(20) + str_mod
+                
+                if total_hit >= player.armor_class:
+                    dmg = roll_dice(6) + str_mod
+                    player.hp_current = max(0, player.hp_current - dmg)
+                    events.append({"type": "text", "message": f"{enemy.name} hits you for <span style='color:red'>{dmg}</span> dmg!"})
+                    
+                    if player.hp_current == 0:
+                        # Player Death
+                        events.append({"type": "popup", "title": "DEFEAT", "content": "You have fallen.", "duration": 4000})
+                        self.dm.teleport_player(0,0,1)
+                        player.hp_current = player.hp_max
+                        # Reset Encounter
+                        encounter = self.session.query(CombatEncounter).filter_by(is_active=True).first()
+                        if encounter: encounter.is_active = False
+                else:
+                     events.append({"type": "text", "message": f"{enemy.name} misses you."})
         else:
-             events.append({"type": "text", "message": f"{enemy.name} roars!"})
+             # Fallback for far away or blocked enemies
+             if not events:
+                 action_msg = f"{enemy.name} roars!"
+                 if dist > 8: action_msg = f"{enemy.name} is lurking in the shadows..."
+                 else: action_msg = f"{enemy.name} is blocked."
+                 events.append({"type": "text", "message": action_msg})
+             elif moved and dist > attack_range:
+                  # Moved but still out of range
+                  pass 
 
         return events
 
@@ -560,6 +881,13 @@ class CombatSystem:
         elif roll > 6: code = "healing_potion" # Was 10
         elif roll > 2: code = "dagger" # Was 5
         
+        # Fire Dungeon Loot (Z=3)
+        if enemy.z == 3:
+             f_roll = roll_dice(100)
+             if f_roll > 95: code = "phoenix_shield" # Very Rare
+             elif f_roll > 80: code = "cryo_flask" # Uncommon
+             elif f_roll > 60: code = "item_core" # Material
+        
         # Chance for second item
         if roll_dice(20) > 15:
              loot.append({"type": "item", "code": "healing_potion", "name": "Healing Potion", "icon": "🧪", "id": f"loot_{random.randint(1000,9999)}"})
@@ -575,3 +903,21 @@ class CombatSystem:
             })
         
         enemy.loot = loot
+
+    def _get_modifier(self, stat_value):
+        return (stat_value - 10) // 2
+    
+    def _dist(self, p1, p2):
+        return max(abs(p1.x - p2.x), abs(p1.y - p2.y))
+    
+    def _get_nearest_enemy(self, encounter):
+        px, py = self.dm.player.x, self.dm.player.y
+        nearest = None
+        min_dist = 999
+        for m in encounter.monsters:
+             if not m.is_alive: continue
+             d = max(abs(m.x - px), abs(m.y - py))
+             if d < min_dist:
+                 min_dist = d
+                 nearest = m
+        return nearest

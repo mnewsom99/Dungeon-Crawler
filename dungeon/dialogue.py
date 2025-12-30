@@ -121,7 +121,9 @@ class DialogueSystem:
              if selected_opt:
                  # Execute Action Hook
                  if "action" in selected_opt:
-                     self.handle_action(selected_opt["action"], target, state)
+                     action_msg = self.handle_action(selected_opt["action"], target, state)
+                     if action_msg:
+                         reply += f"\n\n\n**[{action_msg}]**"
                  
                  # Advance Node
                  next_id = selected_opt.get("next")
@@ -181,17 +183,21 @@ class DialogueSystem:
         
         if action_name.startswith("accept_quest:"):
              qid = action_name.split(":")[1]
-             from .quests import QuestManager
+             from .quests import QuestManager, QUEST_DATABASE
              qm = QuestManager(self.session, self.player)
-             qm.accept_quest(qid)
-             return
+             if qm.accept_quest(qid):
+                 title = QUEST_DATABASE.get(qid, {}).get("title", qid)
+                 return f"Quest Accepted: {title}"
+             return None
 
         if action_name.startswith("complete_quest:"):
              qid = action_name.split(":")[1]
-             from .quests import QuestManager
+             from .quests import QuestManager, QUEST_DATABASE
              qm = QuestManager(self.session, self.player)
-             qm.complete_quest(qid)
-             return
+             if qm.complete_quest(qid):
+                 title = QUEST_DATABASE.get(qid, {}).get("title", qid)
+                 return f"Quest Completed: {title}"
+             return None
              
         if action_name == "rescue_elara":
             state["status"] = "escorting"
@@ -203,6 +209,7 @@ class DialogueSystem:
                 flag_modified(door_tile, "tile_type")
             # Move Elara closer
             npc.x = 2
+            return "Elara is following you."
             
         elif action_name == "rescue_gareth":
             state["status"] = "rescued"
@@ -226,112 +233,5 @@ class DialogueSystem:
         elif action_name == "stay_here":
              state["status"] = "waiting"
 
-        elif action_name == "give_ore":
-            # Remove 1 Iron Ore
-            from .inventory_system import InventorySystem
-            inv_sys = InventorySystem(self.dm.session)
-            # Find item
-            item = next((i for i in self.player.inventory if i.name == "Iron Ore"), None)
-            if item:
-                inv_sys.remove_item(item.id, 1)
-                self.player.gold += 50
-                state["has_ore"] = True # Remember we gave it
-                print("Action: Gave Ore. +50 Gold.")
 
-        elif action_name == "give_herb":
-            from .inventory_system import InventorySystem
-            inv_sys = InventorySystem(self.dm.session)
-            item = next((i for i in self.player.inventory if i.name == "Mystic Herb"), None)
-            if item:
-                inv_sys.remove_item(item.id, 1)
-                self.player.gold += 30
-                print("Action: Gave Herb. +30 Gold.")
-                
-        elif action_name == "start_elemental_quest":
-             # We need a proper Quesy system, but for now we put it in the Player's quest_state or similar
-             # Or we attach it to the Elder's state which the UI reads?
-             # The UI reads 'data.npcs' to infer quests.
-             # Let's set a global flag on the player!
-             qs = self.player.quest_state or {}
-             qs["active_quests"] = qs.get("active_quests", [])
-             if "Elemental Dungeons" not in qs["active_quests"]:
-                 qs["active_quests"].append("Elemental Dungeons")
-                 flag_modified(self.player, "quest_state")
-                 self.session.add(self.player)
-                 self.session.commit()
-                 print("Quest Started: Elemental Dungeons")
-
-        elif action_name == "start_gareth_quest":
-             qs = self.player.quest_state or {}
-             qs["active_quests"] = qs.get("active_quests", [])
-             if "Titanium Hunt" not in qs["active_quests"]:
-                 qs["active_quests"].append("Titanium Hunt")
-                 flag_modified(self.player, "quest_state")
-                 self.session.add(self.player)
-                 self.session.commit()
-                 
-        elif action_name == "start_seraphina_quest":
-             qs = self.player.quest_state or {}
-             qs["active_quests"] = qs.get("active_quests", [])
-             if "Elemental Reagents" not in qs["active_quests"]:
-                 qs["active_quests"].append("Elemental Reagents")
-                 flag_modified(self.player, "quest_state")
-                 self.session.add(self.player)
-                 self.session.commit()
-                 
-        elif action_name == "give_reagents":
-             # Remove Cinder and Spike
-             from .inventory_system import InventorySystem
-             inv_sys = InventorySystem(self.dm.session)
-             cinder = next((i for i in self.player.inventory if i.name == "Everburning Cinder"), None)
-             spike = next((i for i in self.player.inventory if i.name == "Freezing Spike"), None)
-             
-             if cinder and spike:
-                 inv_sys.remove_item(cinder.id, 1)
-                 inv_sys.remove_item(spike.id, 1)
-                 
-                 # Grant Reward: Potion of Power
-                 from .database import InventoryItem
-                 from .items import ITEM_TEMPLATES
-                 t = ITEM_TEMPLATES["potion_of_power"]
-                 self.session.add(InventoryItem(
-                     name=t['name'], item_type=t['type'], slot=t['slot'],
-                     properties=t['properties'], player=self.player
-                 ))
-                 self.session.commit()
-                 
-                 # Complete Quest
-                 qs = self.player.quest_state or {}
-                 if "Elemental Reagents" in qs.get("active_quests", []):
-                     qs["active_quests"].remove("Elemental Reagents")
-                     qs["completed_quests"] = qs.get("completed_quests", []) + ["Elemental Reagents"]
-                     flag_modified(self.player, "quest_state")
-                     self.session.commit()
-                     print("Quest Complete: Elemental Reagents")
-
-        elif action_name == "give_titanium":
-             from .inventory_system import InventorySystem
-             inv_sys = InventorySystem(self.dm.session)
-             item = next((i for i in self.player.inventory if i.name == "Titanium Fragment"), None)
-             
-             if item:
-                 inv_sys.remove_item(item.id, 1)
-                 self.player.gold += 500
-                 
-                 from .database import InventoryItem
-                 from .items import ITEM_TEMPLATES
-                 t = ITEM_TEMPLATES["greatsword"]
-                 self.session.add(InventoryItem(
-                     name="Titanium Greatsword", item_type=t['type'], slot=t['slot'],
-                     properties={"damage": "2d8", "icon": "⚔️"}, player=self.player
-                 ))
-                 self.session.commit()
-                 
-                 qs = self.player.quest_state or {}
-                 if "Titanium Hunt" in qs.get("active_quests", []):
-                     qs["active_quests"].remove("Titanium Hunt")
-                     qs["completed_quests"] = qs.get("completed_quests", []) + ["Titanium Hunt"]
-                     flag_modified(self.player, "quest_state")
-                     self.session.commit()
-                     print("Quest Complete: Titanium Hunt")
 

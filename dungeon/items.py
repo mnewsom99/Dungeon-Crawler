@@ -24,6 +24,14 @@ ITEM_TEMPLATES = {
         "value": 150,
         "description": "Requires two hands, but hits hard."
     },
+    "titanium_greatsword": {
+        "name": "Titanium Greatsword",
+        "type": "weapon",
+        "slot": "main_hand",
+        "properties": {"damage": "2d8", "icon": "⚔️", "rarity": "legendary"},
+        "value": 1000,
+        "description": "A legendary blade forged from star metal. Incredible power."
+    },
     
     # Armor
     "leather_armor": {
@@ -103,6 +111,40 @@ ITEM_TEMPLATES = {
         "properties": {"heal": 50, "buff": "str+2", "icon": "🍷"},
         "value": 500,
         "description": "A legendary brew that grants immense strength."
+    },
+    
+    # Fire Dungeon Loot
+    "phoenix_shield": {
+        "name": "Phoenix Down Shield",
+        "type": "armor",
+        "slot": "off_hand",
+        "properties": {"defense": 3, "effect": "fire_resist", "icon": "🛡️"},
+        "value": 450,
+        "description": "Grants immunity to fire when blocking."
+    },
+    "cryo_flask": {
+        "name": "Cryo-Flask",
+        "type": "consumable",
+        "slot": None,
+        "properties": {"icon": "❄️", "effect": "freeze_lava"},
+        "value": 150,
+        "description": "Freezes lava or steam to create safe passage."
+    },
+    "item_core": {
+        "name": "Igneous Core",
+        "type": "material",
+        "slot": None,
+        "properties": {"icon": "🔥"},
+        "value": 300,
+        "description": "The pulsating heart of a molten creature."
+    },
+    "charred_ledger": {
+        "name": "Charred Ledger",
+        "type": "quest",
+        "slot": None,
+        "properties": {"icon": "📜"},
+        "value": 0,
+        "description": "A burnt book detailing the experiments of the Magma Weaver."
     }
 }
 

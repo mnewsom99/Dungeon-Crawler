@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon Crawler</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=42">
+</head>
+
+<body>
+    <div id="game-view"
+        style="position: absolute; top:0; left:0; width:100vw; height:100vh; z-index: 0; background: #000;">
+        <canvas id="map-canvas"></canvas>
+        <div id="vignette" style="display: none;"></div>
+    </div>
+
+    <!-- UI Overlay Container (Pointer events fall through unless on panel) -->
+    <div id="ui-layer"
+        style="position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; z-index: 10;">
+
+        <!-- Header (Floating) -->
+        <header style="text-align: center; padding: 10px; pointer-events: none;">
+            <h1 style="color: #00ff00; margin: 0; opacity: 0.8; text-shadow: 0 0 5px #000;">Dungeon Crawler</h1>
+        </header>
+
+        <!-- Left Panel: Character Sheet -->
+        <aside id="char-sheet" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; left: 20px; top: 80px;">
+            <div class="drag-handle"><span class="panel-title">HERO STATUS</span> <span class="minimize-btn">_</span>
+            </div>
+            <div class="panel-content">
+                <div class="tab-header">
+                    <button class="tab-btn active" onclick="switchCharTab('hero')">Hero</button>
+                    <button class="tab-btn" onclick="switchCharTab('equipment')">Equip</button>
+                    <button class="tab-btn" onclick="switchCharTab('skills')">Skills</button>
+                    <button class="tab-btn" onclick="switchCharTab('crafting')">Craft</button>
+                </div>
+                <!-- Tab Content: Hero -->
+                <div id="hero-char-tab" class="tab-content active" style="align-items: center;">
+                    <img id="char-image" src="{{ url_for('static', filename='img/player.png') }}" class="char-img"
+                        alt="Character Portrait">
+                    <div class="stat-block" style="width: 100%;">
+                        <h3>Stats</h3>
+                        <table class="stat-table">
+                            <thead>
+                                <tr>
+                                    <th>Stat</th>
+                                    <th>Value</th>
+                                    <th>Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="stat-body">
+                                <tr>
+                                    <td>HP</td>
+                                    <td id="stat-hp" style="color:#0f0; font-weight:bold;">10/10</td>
+                                    <td>Health Points</td>
+                                </tr>
+                                <tr>
+                                    <td>STR</td>
+                                    <td id="stat-str">10</td>
+                                    <td>Physical power</td>
+                                </tr>
+                                <tr>
+                                    <td>DEX</td>
+                                    <td id="stat-dex">10</td>
+                                    <td>Agility</td>
+                                </tr>
+                                <tr>
+                                    <td>CON</td>
+                                    <td id="stat-con">10</td>
+                                    <td>Endurance</td>
+                                </tr>
+                                <tr>
+                                    <td>INT</td>
+                                    <td id="stat-int">10</td>
+                                    <td>Reasoning</td>
+                                </tr>
+                                <tr>
+                                    <td>WIS</td>
+                                    <td id="stat-wis">10</td>
+                                    <td>Intuition</td>
+                                </tr>
+                                <tr>
+                                    <td>CHA</td>
+                                    <td id="stat-cha">10</td>
+                                    <td>Presence</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Tab Content: Equipment -->
+                <div id="equipment-char-tab" class="tab-content">
+                    <h4 style="margin: 5px 0; color: #8f8;">Equipped</h4>
+                    <div id="equipped-slots" style="display: flex; gap: 10px; margin-bottom: 10px;">
+                        <!-- Updated dynamically -->
+                        <div class="equip-slot" data-slot="main_hand" title="Main Hand">✋ Using Fists</div>
+                        <div class="equip-slot" data-slot="chest" title="Chest">👕 Padded Items</div>
+                    </div>
+
+                    <h4 style="margin: 5px 0; color: #aaa; border-top: 1px solid #444; padding-top: 5px;">Backpack</h4>
+                    <ul id="inventory-list"
+                        style="padding-left: 0; list-style: none; max-height: 150px; overflow-y: auto;">
+                        <li style="color: #666; font-style: italic;">Loading...</li>
+                    </ul>
+                </div>
+                <!-- Tab Content: Skills -->
+                <div id="skills-char-tab" class="tab-content">
+                    <h4 style="margin: 5px 0; color: #8f8;">Professions</h4>
+                    <div id="skills-list"
+                        style="display:flex; flex-direction:column; gap:5px; max-height: 200px; overflow-y: auto;">
+                        <span style="color:#666; font-style:italic;">No skills learnt.</span>
+                    </div>
+                </div>
+                <!-- Tab Content: Crafting -->
+                <div id="crafting-char-tab" class="tab-content">
+                    <div id="crafting-list"
+                        style="display:flex; flex-direction:column; gap:5px; max-height: 300px; overflow-y: auto;">
+                        <span style="color:#666; font-style:italic;">Loading recipes...</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Adventure Log (Bottom Left) -->
+        <aside id="adventure-log" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; left: 20px; bottom: 20px; width: 300px; height: 250px; z-index: 15;">
+            <div class="drag-handle"><span class="panel-title">ADVENTURE LOG</span> <span class="minimize-btn">_</span>
+            </div>
+            <div class="panel-content" style="padding:0; background:rgba(0,0,0,0.8);">
+                <div id="log-content"
+                    style="height:100%; overflow-y:auto; padding:5px; font-family:'Consolas', monospace; font-size:0.8em; color:#ccc;">
+                    <div style="color:#666; font-style:italic;">Welcome to Dungeon Crawler...</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right Panel: Interaction -->
+        <aside id="interaction-panel" class="draggable-panel"
+            style="pointer-events: auto; position: absolute; right: 20px; top: 80px;">
+            <div class="drag-handle"><span class="panel-title">INTERACTION</span> <span class="minimize-btn">_</span>
+            </div>
+            <div class="panel-content">
+                <div class="tab-header">
+                    <button class="tab-btn active" onclick="switchTab('nearby')">Nearby</button>
+                    <button class="tab-btn" onclick="switchTab('items')">Items</button>
+                    <button class="tab-btn" onclick="switchTab('quest')">Quest</button>
+                </div>
+                <div id="nearby-tab" class="tab-content active">
+                    <div style="margin-bottom: 5px; text-align: center;">
+                        <button onclick="performAction('investigate')"
+                            style="background: #224466; color: #acf; border: 1px solid #48c; padding: 5px 10px; cursor: pointer; width: 100%; font-size: 0.9em; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                            <span>👁</span> Investigate Area
+                        </button>
+                    </div>
+                    <div id="nearby-list">
+                        <p style="color: #666; font-style: italic;">Nothing of interest...</p>
+                    </div>
+                </div>
+                <div id="items-tab" class="tab-content">
+                    <div id="items-list">
+                        <p style="color: #666; font-style: italic;">Your bag is empty.</p>
+                    </div>
+                </div>
+                <div id="quest-tab" class="tab-content">
+                    <div id="quest-list">
+                        <p style="color: #666; font-style: italic;">No active quests.</p>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+
+
+        <!-- Combat Panel (Hidden by default) -->
+        <div id="combat-controls" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 150px; left: 340px; width: 300px; border: 2px solid #800; background: rgba(20, 0, 0, 0.9); z-index: 100;">
+            <div class="drag-handle" style="background: #400;"><span class="panel-title"
+                    style="color: #fca;">COMBAT</span> <span class="minimize-btn">_</span></div>
+            <div class="panel-content" style="text-align: center; padding: 15px;">
+                <h3 id="combat-enemy-name" style="color: #ff4444; margin-top: 0;">Enemy</h3>
+                <div style="margin: 10px 0;">
+                    <span style="color: #aaa;">HP:</span>
+                    <span id="combat-enemy-hp" style="color: #fff; font-weight: bold;">?</span>
+                </div>
+
+                <div class="combat-actions"
+                    style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
+                    <button onclick="combatAction('attack')" class="btn-combat btn-attack">⚔ Attack</button>
+                    <button onclick="combatAction('second_wind')" class="btn-combat btn-defend"
+                        style="background: #004400; color: #8f8; border-color: #0f0;">💚 Heal</button>
+                    <button onclick="combatAction('flee')" class="btn-combat btn-flee">🏃 Flee</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls (Minimal/Hidden or Reset Only) -->
+        <div style="position: absolute; bottom: 10px; right: 10px; pointer-events: auto;">
+            <button onclick="resetGame()"
+                style="background: #500; color: #faa; border: 1px solid #f00; font-size: 10px;">Reset</button>
+        </div>
+
+        <!-- Combat Turn Notification -->
+        <div id="turn-notification">
+            <h2 id="turn-title">Enemy Turn</h2>
+            <div id="turn-content">Thinking...</div>
+        </div>
+
+        <!-- Chat Modal -->
+        <!-- Chat Modal -->
+        <div id="chat-modal" style="display: none; pointer-events: auto;">
+            <div id="chat-portrait" style="background-image: url('static/img/player.png');">
+                <span id="chat-overlaid-name">NPC Name</span>
+            </div>
+            <div id="chat-content-wrapper">
+                <div id="chat-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <!-- Trade Button (Hidden by default) -->
+                    <button id="chat-trade-btn" onclick="openShop(activeChatNPCName)"
+                        style="display:none; padding:5px 10px; background:#d4af37; color:#000; font-weight:bold; cursor:pointer; border:1px solid #996515; border-radius:4px;">💰
+                        Trade</button>
+
+                    <button class="close-btn" onclick="closeChat()"
+                        style="background:none; border:none; font-size:1.5em; cursor:pointer; margin-left:auto;">&times;</button>
+                </div>
+                <div id="chat-history"></div>
+            </div>
+        </div>
+
+        <!-- Shop Modal -->
+        <div id="shop-modal" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 10%; left: 50%; transform: translateX(-50%); width: 700px; height: 500px; z-index: 200; background: #1a1a1a; border: 2px solid #d4af37;">
+            <div class="drag-handle" style="background: #8a6e25; color: #fff;">
+                <span class="panel-title">MERCHANT</span>
+                <span class="minimize-btn" onclick="document.getElementById('shop-modal').style.display='none'">X</span>
+            </div>
+            <div class="panel-content"
+                style="padding: 0; display:flex; flex-direction:column; height:calc(100% - 30px);">
+                <!-- Header -->
+                <div
+                    style="padding: 10px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; background:#222;">
+                    <div>
+                        <span id="shop-merchant-name"
+                            style="font-weight: bold; color: #d4af37; font-size:1.2em;">Merchant</span>
+                        <div style="font-size:0.8em; color:#aaa;">Drag items to Buy/Sell</div>
+                    </div>
+                    <span style="color: #ffd700; font-size:1.2em;">Gold: <span id="shop-player-gold">0</span>g</span>
+                </div>
+
+                <!-- Dual Grids -->
+                <div style="display:flex; flex:1; overflow:hidden;">
+                    <!-- Merchant Side -->
+                    <div style="flex:1; border-right:2px solid #444; display:flex; flex-direction:column;">
+                        <div style="padding:5px; background:#332200; color:#eba; font-weight:bold; text-align:center;">
+                            MERCHANT</div>
+                        <div id="shop-list" class="shop-grid"
+                            style="padding: 10px; overflow-y: auto; flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap:5px; align-content:start;">
+                            <!-- Items go here -->
+                        </div>
+                    </div>
+
+                    <!-- Player Side -->
+                    <div style="flex:1; display:flex; flex-direction:column;">
+                        <div style="padding:5px; background:#002200; color:#bea; font-weight:bold; text-align:center;">
+                            INVENTORY</div>
+                        <div id="player-shop-inv" class="shop-grid"
+                            style="padding: 10px; overflow-y: auto; flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(50px, 1fr)); gap:5px; align-content:start;">
+                            <!-- Player Items go here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loot Modal -->
+        <div id="loot-modal" class="draggable-panel"
+            style="display: none; pointer-events: auto; position: absolute; top: 20%; left: 50%; transform: translateX(-50%); width: 300px; height: auto; min-height: 200px; z-index: 200; background: #1a0a0a; border: 2px solid #800;">
+            <div class="drag-handle" style="background: #800; color: #fff;">
+                <span class="panel-title" id="loot-title">LOOT</span>
+                <span class="minimize-btn" onclick="document.getElementById('loot-modal').style.display='none'">X</span>
+            </div>
+            <div style="padding: 10px; color: #ccc;">
+                <div id="loot-list" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+            <div style="padding: 10px; text-align: center; border-top: 1px solid #400;">
+                <button onclick="document.getElementById('loot-modal').style.display='none'"
+                    style="background: #400; color: #fff; padding: 5px 10px;">Close</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Game Modules -->
+    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui_combat.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui_inventory.js') }}?v=46"></script>
+    <!-- Refactored Graphics Modules -->
+    <script src="{{ url_for('static', filename='js/modules/assets.js') }}?v=49"></script>
+    <script src="{{ url_for('static', filename='js/modules/input.js') }}?v=49"></script>
+    <script src="{{ url_for('static', filename='js/modules/renderer.js') }}?v=49"></script>
+    <!-- MAIN LOGIC -->
+    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=46"></script>
+</body>
+
+</html>

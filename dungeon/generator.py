@@ -193,16 +193,33 @@ class LevelBuilder:
         tiles = {} # (x,y) -> type
 
         for x in range(-20, 21):
-            for y in range(-20, 21):
+            for y in range(-23, 22): # Expanded Range for Moat (-22)
                 t_type = "grass" # Explicitly grass type for frontend rendering
+                # Borders
                 if abs(x) == 20 or abs(y) == 20: 
                     t_type = "wall" # Town border
                     
-                    # Create Openings
-                    # North Gate
-                    if y == -20 and abs(x) < 3:
-                        t_type = "floor" # Road
-                
+                    # North Gate (Fortified Gatehouse)
+                    if y == -20:
+                        # Moat (Outer)
+                        if abs(x) <= 6:
+                            tiles[(x, -21)] = "water"
+                            tiles[(x, -22)] = "water" # Double wide moat
+
+                        # Bridge
+                        tiles[(0, -21)] = "bridge"
+                        tiles[(0, -22)] = "bridge"
+
+                        # Gate Towers
+                        if abs(x) <= 2:
+                             if x == 0: t_type = "door"
+                             else: t_type = "wall_grey" # Heavy Towers
+
+                # North Gate (Inner Keep - "Massive" feel)
+                if y == -19 and abs(x) <= 2:
+                    if x == 0: t_type = "floor" 
+                    else: t_type = "wall_grey" 
+
                 tiles[(x,y)] = t_type
 
         # 2. Structures
@@ -407,7 +424,7 @@ class LevelBuilder:
             self.session.add(m)
             
         # 6. Spawns (Wolves, Bears)
-        beasts = ["Dire Wolf", "Forest Bear", "Goblin Scout"]
+        beasts = ["Dire Wolf", "Forest Bear", "Knife Goblin"]
         occupied_spawns = set()
         
         # Increased by 25%: 15 -> ~19
@@ -440,5 +457,81 @@ class LevelBuilder:
             self.session.add(Monster(name=b["name"], hp_current=b["hp"], hp_max=b["hp"], 
                                      x=b["x"], y=b["y"], z=z, state="alive", 
                                      stats={"str": 14, "dex": 12, "int": 10})) # Boost str for bosses
+
+        self.session.commit()
+
+    def generate_fire_dungeon(self, z):
+        """Generate the Fire Dungeon (Z=3)."""
+        print(f"Generator: Building Fire Dungeon at Z={z}...")
+        import random
+
+        # 1. Base: Volcanic Floor
+        # Irregular Cave Shape using Random Walk
+        floors = set()
+        walkers = [(0, 0)]
+        
+        # Entrance Room
+        for x in range(-3, 4):
+            for y in range(-3, 4):
+                floors.add((x, y))
+
+        # Dig Tunnels
+        for _ in range(400): # Steps
+             new_walkers = []
+             for wx, wy in walkers:
+                 dx, dy = random.choice([(0,1), (0,-1), (1,0), (-1,0)])
+                 nx, ny = wx+dx, wy+dy
+                 if abs(nx) < 30 and abs(ny) < 30: # Bounds
+                     floors.add((nx, ny))
+                     if random.random() < 0.1: new_walkers.append((nx, ny)) # Branch
+                     else: new_walkers.append((nx, ny)) # Move
+             walkers = new_walkers
+        
+        # 2. Convert to MapTiles
+        for (x, y) in floors:
+            t_type = "floor_volcanic"
+            # Lava Pools
+            if random.random() < 0.05 and abs(x) > 5: t_type = "lava"
+            # Steam Vents
+            elif random.random() < 0.02 and abs(x) > 5: t_type = "steam_vent"
+            
+            self.session.add(MapTile(x=x, y=y, z=z, tile_type=t_type, is_visited=False)) # Fog of war
+
+        # Walls (Surround floors)
+        walls = set()
+        for x, y in floors:
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    if (x+dx, y+dy) not in floors:
+                        walls.add((x+dx, y+dy))
+        
+        for x, y in walls:
+            self.session.add(MapTile(x=x, y=y, z=z, tile_type="wall_volcanic", is_visited=False))
+            
+        # 3. Monsters
+        valid_floors = list(floors)
+        enemies = [
+            ("Cinder-Hound", 15, "beast"),
+            ("Obsidian Sentinel", 40, "golem"),
+            ("Sulfur Bat", 8, "beast")
+        ]
+        
+        for _ in range(15):
+             ex, ey = random.choice(valid_floors)
+             if abs(ex) < 5 and abs(ey) < 5: continue # Safe zone
+             
+             etype = random.choice(enemies)
+             self.session.add(Monster(name=etype[0], hp_current=etype[1], hp_max=etype[1], 
+                                      x=ex, y=ey, z=z, state="alive", family=etype[2]))
+
+        # BOSS: Magma Weaver (at end of longest path approx)
+        boss_x, boss_y = max(valid_floors, key=lambda p: abs(p[0]) + abs(p[1]))
+        self.session.add(Monster(name="Magma Weaver", hp_current=80, hp_max=80, 
+                                 x=boss_x, y=boss_y, z=z, state="alive", family="boss",
+                                 stats={"str": 16, "dex": 14, "int": 12}))
+                                 
+        # Boss Chest
+        chest_loot = [{"id": "item_core", "name": "Igneous Core", "item_type": "material", "properties": {"icon": "🔥"}}]
+        self.session.add(WorldObject(name="Obsidian Chest", obj_type="chest", x=boss_x, y=boss_y-1, z=z, properties={"loot": chest_loot}))
 
         self.session.commit()

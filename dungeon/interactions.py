@@ -27,7 +27,49 @@ class InteractionManager:
         elif (action == "mine" or action == "gather") and target_type == "tile":
              return self._handle_resource_gather(action, target_index)
              
+        elif action == "use_item":
+             return self._handle_item_use(target_index)
+
         return "Invalid action."
+
+    def _handle_item_use(self, item_name):
+        from .database import InventoryItem
+        
+        # 1. Check Receipt
+        item = self.session.query(InventoryItem).filter_by(player=self.player, name=item_name).first()
+        if not item: return "You don't have that."
+        
+        # 2. Logic per Item
+        if item_name == "Cryo-Flask":
+             # Effect: Freezes adjacent Lava/Steam
+             px, py, pz = self.player.x, self.player.y, self.player.z
+             frozen_count = 0
+             
+             affected_tiles = self.session.query(MapTile).filter(
+                 MapTile.z == pz,
+                 MapTile.x.between(px-1, px+1),
+                 MapTile.y.between(py-1, py+1),
+                 MapTile.tile_type.in_(["lava", "steam_vent"])
+             ).all()
+             
+             if not affected_tiles:
+                 return "There is no lava or steam nearby to freeze."
+                 
+             for t in affected_tiles:
+                 t.tile_type = "floor_volcanic"
+                 flag_modified(t, "tile_type")
+                 frozen_count += 1
+                 
+             # Consume Item
+             if item.quantity > 1:
+                 item.quantity -= 1
+             else:
+                 self.session.delete(item)
+                 
+             self.session.commit()
+             return f"You throw the Cryo-Flask! {frozen_count} patches of danger flash-freeze into solid rock."
+             
+        return f"You can't use {item_name} here."
 
     def _handle_resource_gather(self, action, target_index):
         try:

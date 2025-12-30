@@ -101,6 +101,8 @@ NPC_SCRIPTS = {
              "town_start": {
                 "text": "Welcome to the Ironhand Smithy! Best steel in the region.",
                 "options": [
+                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply"},
+                    {"label": "I found the Titanium Fragment!", "next": "turn_in_titanium", "action": "complete_quest:titanium_hunt", "req_quest_active": "titanium_hunt"},
                     {"label": "Can you upgrade my gear?", "next": "shop_info"},
                     {"label": "See you later.", "next": "end"}
                 ]
@@ -205,6 +207,8 @@ NPC_SCRIPTS = {
              "town_start": {
                 "text": "Welcome to my Alchemy Shop! The mana here is pristine.",
                 "options": [
+                    {"label": "Here are the herbs.", "next": "turn_in_herb", "action": "complete_quest:herbal_remedy", "req_quest_active": "herbal_remedy"},
+                    {"label": "I have the Fire and Ice reagents!", "next": "turn_in_reagents", "action": "complete_quest:elemental_reagents", "req_quest_active": "elemental_reagents"},
                     {"label": "Do you have potions?", "next": "shop_info"},
                     {"label": "Bye.", "next": "end"}
                 ]

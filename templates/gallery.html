@@ -129,7 +129,16 @@
     <div id="library">
         <h2>Asset Library (Drag these)</h2>
         <input type="text" id="search-box" placeholder="Search assets..."
-            style="width: 100%; padding: 10px; margin-bottom: 20px; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff;">
+            style="width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; background: #222; border: 1px solid #444; color: #fff;">
+
+        <!-- Pagination Controls -->
+        <div id="pagination"
+            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 5px; background: #222;">
+            <button onclick="changePage(-1)" style="cursor:pointer;">&lt; Prev</button>
+            <span id="page-info" style="font-size: 0.9em; color:#aaa;">Page 1</span>
+            <button onclick="changePage(1)" style="cursor:pointer;">Next &gt;</button>
+        </div>
+
         <div class="grid" id="asset-grid">Loading...</div>
     </div>
 
@@ -158,7 +167,16 @@
             { id: 'street_lamp', label: 'Street Lamp' },
             { id: 'fountain', label: 'Town Fountain' },
             { id: 'flower_pot', label: 'Flower Pot' },
-            { id: 'signpost', label: 'Signpost' }
+            { id: 'signpost', label: 'Signpost' },
+            { id: 'knife_goblin', label: 'Enemy: Knife Goblin' },
+            { id: 'goblin_scout', label: 'Enemy: Goblin Scout' },
+            { id: 'cinder_hound', label: 'Enemy: Cinder Hound' },
+            { id: 'fire_guardian', label: 'Boss: Fire Guardian' },
+            { id: 'magma_weaver', label: 'Boss: Magma Weaver' },
+            { id: 'obsidian_sentinel', label: 'Enemy: Obsidian Sentinel' },
+            { id: 'sulfur_bat', label: 'Enemy: Sulfur Bat' },
+            { id: 'bear', label: 'Enemy: Bear' },
+            { id: 'wolf', label: 'Enemy: Wolf' }
         ];
 
         function toast(msg, color = '#333') {
@@ -184,34 +202,45 @@
             slotContainer.appendChild(div);
         });
 
-        // Fetch Library
-        // Fetch Library
+        // --- Library & Pagination ---
         let allFiles = [];
+        let currentList = [];
+        let currentPage = 1;
+        const itemsPerPage = 500;
 
         async function loadLibrary() {
             const res = await fetch('/api/assets/list');
             const data = await res.json();
             allFiles = data.files;
-            renderGrid(allFiles);
+            currentList = allFiles;
+            renderPage();
         }
 
-        function renderGrid(files) {
+        function changePage(delta) {
+            const maxPage = Math.ceil(currentList.length / itemsPerPage);
+            const newPage = currentPage + delta;
+            if (newPage >= 1 && newPage <= maxPage) {
+                currentPage = newPage;
+                renderPage();
+            }
+        }
+
+        function renderPage() {
             const grid = document.getElementById('asset-grid');
             grid.innerHTML = '';
 
-            // Limit to 200 items for performance if needed, or pagination. 
-            // But let's verify if pagination is needed later. Paging local array is fast.
-            // For now render all (or top 500).
+            // Calculate Range
+            const start = (currentPage - 1) * itemsPerPage;
+            const end = start + itemsPerPage;
+            const slice = currentList.slice(start, end);
 
-            files.slice(0, 500).forEach(file => {
+            // Render Items
+            slice.forEach(file => {
                 const div = document.createElement('div');
                 div.className = 'cell';
                 div.draggable = true;
                 div.ondragstart = (e) => e.dataTransfer.setData("text", file);
-
-                // Show relative path or just name? Asset library might have subfolders.
-                // file is like "Tiny_Town/tile_0001.png"
-                div.title = file; // Tooltip
+                div.title = file;
 
                 div.innerHTML = `
                     <img loading="lazy" src="/static/asset_library/${file}">
@@ -219,21 +248,25 @@
                 `;
                 grid.appendChild(div);
             });
+
+            // Update Controls
+            const maxPage = Math.ceil(currentList.length / itemsPerPage) || 1;
+            document.getElementById('page-info').textContent = `Page ${currentPage} / ${maxPage} (${currentList.length} items)`;
         }
 
         // Search Filter (Both Sides)
         document.getElementById('search-box').addEventListener('input', (e) => {
             const query = e.target.value.toLowerCase();
 
-            // 1. Filter Library (Left)
-            const filtered = allFiles.filter(f => f.toLowerCase().includes(query));
-            renderGrid(filtered);
+            // 1. Filter Library (Reset to Page 1)
+            currentList = allFiles.filter(f => f.toLowerCase().includes(query));
+            currentPage = 1;
+            renderPage();
 
             // 2. Filter Slots (Right)
             const slots = document.querySelectorAll('.slot-group');
             slots.forEach(grp => {
                 const text = grp.textContent.toLowerCase();
-                // Matches Title or content (label)
                 if (text.includes(query)) {
                     grp.style.display = '';
                 } else {

@@ -6,9 +6,15 @@ app = Flask(__name__)
 # Force Reload Trigger v37 for Backend Modularization
 dm = DungeonMaster()
 
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    from dungeon.database import SessionLocal
+    SessionLocal.remove()
+
 @app.route('/')
 def home():
-    return render_template('index.html')
+    print("DEBUG: SERVING index_v2.html")
+    return render_template('index_v2.html')
 
 @app.route('/api/state')
 def get_state():
@@ -19,8 +25,9 @@ def get_state():
 def combat_action():
     data = request.json
     action = data.get('action')
+    target_id = data.get('target_id')
     
-    narrative_data = dm.combat.player_action(action)
+    narrative_data = dm.combat.player_action(action, target_id=target_id)
     
     # We might need to fetch updated combat state from DM if we want it separately
     # But get_state loop handles it mostly. 
@@ -197,6 +204,12 @@ def perform_action():
 def upgrade_stat():
     data = request.json
     msg = dm.upgrade_stat(data.get("stat"))
+    return jsonify({"message": msg, "state": dm.get_state_dict()})
+
+@app.route('/api/skills/choose', methods=['POST'])
+def choose_skill():
+    data = request.json
+    msg = dm.choose_skill(data.get("skill_id"))
     return jsonify({"message": msg, "state": dm.get_state_dict()})
 
 @app.route('/gallery')

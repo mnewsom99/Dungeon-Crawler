@@ -1,33 +1,49 @@
-from dungeon.database import get_session, Monster, WorldObject
 
-session = get_session()
+from dungeon.database import SessionLocal, Monster, Player
+from sqlalchemy import func
 
-print("Checking for Overlaps...")
+def check_overlaps():
+    session = SessionLocal()
+    try:
+        # Get player pos
+        player = session.query(Player).first()
+        if not player:
+            print("No player found.")
+            return
 
-# Check Armory Overlap
-chest = session.query(WorldObject).filter_by(x=-10, y=11, z=0).first()
-monster = session.query(Monster).filter_by(x=-10, y=11, z=0).first()
+        print(f"Player at: {player.x}, {player.y}, {player.z}")
 
-if chest and monster:
-    print(f"Found overlap at (-10, 11): {monster.name} on {chest.name}")
-    monster.x = -11
-    monster.y = 10
-    session.add(monster)
-    print(f"Moved {monster.name} to (-11, 10)")
-    session.commit()
-else:
-    print("No Armory overlap found.")
+        # Check for monsters at the same location
+        duplicates = session.query(Monster.x, Monster.y, Monster.z, func.count('*')).\
+            filter_by(is_alive=True).\
+            group_by(Monster.x, Monster.y, Monster.z).\
+            having(func.count('*') > 1).\
+            all()
 
-# Check Library (just in case)
-chest_lib = session.query(WorldObject).filter_by(x=10, y=11, z=0).first()
-monster_lib = session.query(Monster).filter_by(x=10, y=11, z=0).first()
+        if duplicates:
+            print(f"FOUND {len(duplicates)} LOCATIONS WITH OVERLAPPING MONSTERS!")
+            for x, y, z, count in duplicates:
+                print(f"Location ({x}, {y}, {z}) has {count} monsters:")
+                monsters = session.query(Monster).filter_by(x=x, y=y, z=z, is_alive=True).all()
+                for m in monsters:
+                    print(f" - ID: {m.id} | Name: '{m.name}' | HP: {m.hp_current}")
+        else:
+            print("No overlapping monsters found.")
 
-if chest_lib and monster_lib:
-    print(f"Found overlap at (10, 11): {monster_lib.name} on {chest_lib.name}")
-    monster_lib.x = 9
-    monster_lib.y = 12
-    session.add(monster_lib)
-    session.commit()
-    print("Fixed Library overlap.")
+        # Check specifically near player to help debug the "Knife Goblin" spot
+        nearby = session.query(Monster).filter(
+            Monster.x >= player.x - 5, Monster.x <= player.x + 5,
+            Monster.y >= player.y - 5, Monster.y <= player.y + 5,
+            Monster.z == player.z,
+            Monster.is_alive == True
+        ).all()
+        
+        print("\nNearby Monsters:")
+        for m in nearby:
+             print(f" - ({m.x}, {m.y}) ID: {m.id} | Name: '{m.name}'")
 
-print("Done.")
+    finally:
+        session.close()
+
+if __name__ == "__main__":
+    check_overlaps()

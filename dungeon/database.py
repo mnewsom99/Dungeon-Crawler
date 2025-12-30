@@ -1,73 +1,70 @@
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, JSON, ForeignKey
-from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
-from pathlib import Path
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, JSON, ForeignKey, Index
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 
-# Define the database path
-DB_PATH = Path("dungeon.db")
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+Base = declarative_base()
 
-# Setup Engine and Session
-engine = create_engine(DATABASE_URL, echo=False, connect_args={'check_same_thread': False})
-SessionLocal = sessionmaker(bind=engine)
+engine = None
+Session = None
 
-class Base(DeclarativeBase):
-    pass
+
 
 class Player(Base):
     __tablename__ = 'players'
     
     id = Column(Integer, primary_key=True)
-    name = Column(String, default="Hero")
-    character_class = Column(String, default="Adventurer")
+    name = Column(String)
     
-    # Core Stats
-    level = Column(Integer, default=1)
-    xp = Column(Integer, default=0)
-    gold = Column(Integer, default=0) # Currency
+    # Vitality
     hp_current = Column(Integer, default=20)
     hp_max = Column(Integer, default=20)
-    mana_current = Column(Integer, default=10)
-    mana_max = Column(Integer, default=10)
-    stamina_current = Column(Integer, default=10)
     
-    # Attributes (STR, DEX, etc.) stored as JSON
-    stats = Column(JSON, default={})
-    skills = Column(JSON, default={}) # Herbalism, Mining, etc.
-    known_recipes = Column(JSON, default=[]) # List of Recipe IDs
-    armor_class = Column(Integer, default=12) # 10 + 1 (Defense) + 1 (Generic Leather)
-    
-    # Position
+    # Location
     x = Column(Integer, default=0)
     y = Column(Integer, default=0)
-    y = Column(Integer, default=0)
-    z = Column(Integer, default=0)
+    z = Column(Integer, default=1)
     
-    quest_state = Column(JSON, default={}) # Player's personal quest log/flags
+    # Stats
+    stats = Column(JSON, default={}) # Str, Dex, etc.
+    skills = Column(JSON, default={}) # Mining, Herbalism, etc.
+    armor_class = Column(Integer, default=10)
+    
+    # Progression
+    xp = Column(Integer, default=0)
+    level = Column(Integer, default=1)
+    gold = Column(Integer, default=0)
+    
+    quest_state = Column(JSON, default={"active_quests": []})
     
     # Relationships
     inventory = relationship("InventoryItem", back_populates="player", cascade="all, delete-orphan")
 
 class InventoryItem(Base):
-    __tablename__ = 'inventory'
+    __tablename__ = 'inventory_items'
     
     id = Column(Integer, primary_key=True)
     player_id = Column(Integer, ForeignKey('players.id'))
     
     name = Column(String)
-    item_type = Column(String) # weapon, armor, potion, material
-    properties = Column(JSON, default={}) # damage: "1d6", defense: 2, etc.
-    is_equipped = Column(Boolean, default=False)
-    slot = Column(String, nullable=True) # main_hand, chest, head, legs, feet, hands, neck, off_hand
+    item_type = Column(String, default="misc") # weapon, armor, consumable, material
+    slot = Column(String, nullable=True) # main_hand, chest, etc.
     quantity = Column(Integer, default=1)
     
+    is_equipped = Column(Boolean, default=False)
+    properties = Column(JSON, default={}) # {"damage": "1d6", "defense": 2}
+
     player = relationship("Player", back_populates="inventory")
 
 class MapTile(Base):
     __tablename__ = 'map_tiles'
     
+    # Composite Index for fast spatial lookups
+    __table_args__ = (
+        Index('idx_maptile_location', 'z', 'x', 'y'),
+    )
+    
     id = Column(Integer, primary_key=True)
-    x = Column(Integer, index=True)
-    y = Column(Integer, index=True)
+    x = Column(Integer)
+    y = Column(Integer)
     z = Column(Integer, default=0)
     
     tile_type = Column(String) # floor, wall, void
@@ -78,6 +75,10 @@ class MapTile(Base):
 
 class WorldObject(Base):
     __tablename__ = 'world_objects'
+
+    __table_args__ = (
+        Index('idx_wobj_location', 'z', 'x', 'y'),
+    )
     
     id = Column(Integer, primary_key=True)
     name = Column(String)
@@ -109,6 +110,11 @@ class CombatEncounter(Base):
 
 class Monster(Base):
     __tablename__ = 'monsters'
+
+    __table_args__ = (
+        Index('idx_monster_location', 'z', 'x', 'y'),
+        Index('idx_monster_alive', 'is_alive'),
+    )
     
     id = Column(Integer, primary_key=True)
     name = Column(String)
@@ -142,6 +148,10 @@ class Monster(Base):
 # NPC Table for Oakhaven
 class NPC(Base):
     __tablename__ = 'npcs'
+
+    __table_args__ = (
+        Index('idx_npc_location', 'z', 'x', 'y'),
+    )
     
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
@@ -155,9 +165,18 @@ class NPC(Base):
 
     quest_state = Column(JSON, default={}) # Tracks interactions
 
+
+# Database Initialization
+from sqlalchemy.orm import scoped_session
+
+engine = create_engine('sqlite:///dungeon.db', connect_args={'check_same_thread': False})
+SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
+
 def init_db():
     """Create tables if they don't exist."""
-    Base.metadata.create_all(engine)
+    Base.metadata.create_all(bind=engine)
 
 def get_session():
-    return SessionLocal()
+    # Return the scoped_session registry/proxy directly.
+    # This allows it to act as a thread-local proxy.
+    return SessionLocal

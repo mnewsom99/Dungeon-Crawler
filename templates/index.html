@@ -9,8 +9,6 @@
 </head>
 
 <body>
-
-
     <div id="game-view"
         style="position: absolute; top:0; left:0; width:100vw; height:100vh; z-index: 0; background: #000;">
         <canvas id="map-canvas"></canvas>
@@ -127,7 +125,7 @@
 
         <!-- Adventure Log (Bottom Left) -->
         <aside id="adventure-log" class="draggable-panel"
-            style="pointer-events: auto; position: absolute; left: 20px; bottom: 20px; width: 300px; height: 150px; z-index: 15;">
+            style="pointer-events: auto; position: absolute; left: 20px; bottom: 20px; width: 300px; height: 250px; z-index: 15;">
             <div class="drag-handle"><span class="panel-title">ADVENTURE LOG</span> <span class="minimize-btn">_</span>
             </div>
             <div class="panel-content" style="padding:0; background:rgba(0,0,0,0.8);">
@@ -173,16 +171,7 @@
             </div>
         </aside>
 
-        <!-- Log as Floating Popup -->
-        <div id="narrative-log" class="draggable-panel"
-            style="pointer-events: auto; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 600px; max-height: 200px;">
-            <div class="drag-handle"><span class="panel-title">ADVENTURE LOG</span> <span class="minimize-btn">_</span>
-            </div>
-            <div id="log-content" style="padding: 10px; overflow-y: auto; max-height: 150px;">
-                <p class="system-msg">You wake up in an unknown dungeon. You don't know where you are. The air is damp
-                    and stone walls surround you.</p>
-            </div>
-        </div>
+
 
         <!-- Combat Panel (Hidden by default) -->
         <div id="combat-controls" class="draggable-panel"
@@ -302,14 +291,16 @@
     </div>
 
     <!-- Game Modules -->
-    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui_combat.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui_inventory.js') }}?v=43"></script>
-    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=43"></script>
+    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui_combat.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/ui_inventory.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/modules/graphics.js') }}?v=46"></script>
+    <script src="{{ url_for('static', filename='js/render_debug.js') }}?v=1"></script>
+    <script src="{{ url_for('static', filename='js/game_v3.js') }}?v=1"></script>
     <!-- MAIN LOGIC -->
-    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=43"></script>
+    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=46"></script>
 </body>
 
 </html>

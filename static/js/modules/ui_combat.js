@@ -72,6 +72,20 @@ function updateCombatUI(combatState) {
 
 // Global state to track which tab is active in the Combat Menu
 let combatTab = 'move'; // 'move', 'action', 'bonus'
+let combatSkillMode = null; // 'heavy_strike', 'kick', etc.
+
+function toggleSkillMode(mode) {
+    if (combatSkillMode === mode) combatSkillMode = null; // Toggle off
+    else combatSkillMode = mode;
+
+    // Force Re-render
+    const area = document.getElementById('combat-menu-area');
+    if (area && window.gameState && window.gameState.combat) {
+        area.dataset.lastHTML = ""; // Force clean render
+        renderPlayerMenu(area, window.gameState.combat);
+    }
+}
+window.toggleSkillMode = toggleSkillMode;
 
 function renderPlayerMenu(container, combatState) {
     // If we are showing the processing spinner, DO NOT overwrite it until we get a new result!
@@ -98,6 +112,12 @@ function renderPlayerMenu(container, combatState) {
              ${_renderTabBtn('bonus', 'BONUS', combatState.bonus_actions_left, combatTab === 'bonus')}
         </div>
     `;
+
+    // Mode Indicator
+    if (combatSkillMode) {
+        const modeName = combatSkillMode.replace('_', ' ').toUpperCase();
+        html += `<div style="text-align:center; background:#400; color:#f99; font-size:0.8em; padding:2px; margin-bottom:5px; border:1px solid #f00;">TARGETING: ${modeName}</div>`;
+    }
 
     html += `<div style="min-height: 120px; border:1px solid #333; padding:5px; margin-bottom:5px; background:rgba(0,0,0,0.3);">`;
 
@@ -131,24 +151,53 @@ function renderPlayerMenu(container, combatState) {
                 const dy = e.xyz[1] - py;
                 const distEucl = Math.sqrt(dx * dx + dy * dy);
                 const distManh = Math.abs(dx) + Math.abs(dy);
+                const distChebyshev = Math.max(Math.abs(dx), Math.abs(dy));
 
                 // VISIBILITY CHECK: Only show if within 6 tiles (~torch radius)
                 if (distEucl > 6) return;
 
                 visibleCount++;
 
-                const inRange = distManh <= 1.5; // Melee Range
+                const inRange = distChebyshev <= 1.5; // Melee Range (1 tile + diagonals)
+
+                // Determine Action
+                const act = combatSkillMode || 'attack';
+                const label = combatSkillMode ? combatSkillMode.replace('_', ' ').toUpperCase() : '⚔';
+                const style = combatSkillMode ? 'border-color:#f80; background:#420;' : '';
 
                 // Show button
                 html += `
-                 <button onclick="combatAction('attack', '${e.id}')" class="rpg-list-btn" ${inRange ? '' : 'disabled'} style="border-left:3px solid ${inRange ? '#f00' : '#555'}; opacity:${inRange ? 1 : 0.5}">
+                 <button onclick="combatAction('${act}', '${e.id}')" class="rpg-list-btn" ${inRange ? '' : 'disabled'} style="border-left:3px solid ${inRange ? '#f00' : '#555'}; opacity:${inRange ? 1 : 0.5}; ${style}">
                     <div style="display:flex; justify-content:space-between;">
-                        <span>⚔ ${e.name}</span>
+                        <span>${label} ${e.name}</span>
                         <span>${e.hp}/${e.max_hp}</span>
                     </div>
                  </button>`;
             });
             if (visibleCount === 0) html += `<div style="color:#666;">No visible targets.</div>`;
+
+            // SKILL: CLEAVE (Action) - Immediate, no targeting needed usually (hits all)
+            const skills = window.gameState && window.gameState.player && window.gameState.player.skills ? window.gameState.player.skills : {};
+            if (skills.cleave) {
+                html += `
+                 <button onclick="combatAction('cleave')" class="rpg-list-btn" style="border-left:3px solid #f55; margin-top:5px; background: #311;">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>🛑 Cleave</span>
+                        <span style="font-size:0.8em; color:#aaa;">All Adjacent</span>
+                    </div>
+                 </button>`;
+            }
+            // SKILL: HEAVY STRIKE (Action)
+            if (skills.heavy_strike) {
+                const isActive = combatSkillMode === 'heavy_strike';
+                html += `
+                 <button onclick="toggleSkillMode('heavy_strike')" class="rpg-list-btn" style="border-left:3px solid ${isActive ? '#fff' : '#f55'}; margin-top:5px; background: ${isActive ? '#522' : '#311'};">
+                    <div style="display:flex; justify-content:space-between;">
+                        <span>${isActive ? '✅ TARGETING HEAVY STRIKE' : '⚔ Heavy Strike'}</span>
+                        <span style="font-size:0.8em; color:#aaa;">Select Target</span>
+                    </div>
+                 </button>`;
+            }
 
             html += `</div>`;
         } else {
@@ -158,6 +207,7 @@ function renderPlayerMenu(container, combatState) {
 
     // TAB CONTENT: BONUS
     else if (combatTab === 'bonus') {
+        const skills = window.gameState && window.gameState.player && window.gameState.player.skills ? window.gameState.player.skills : {};
         if (hasBonus) {
             html += `
              <div style="display:flex; flex-direction:column; gap:5px;">
@@ -167,14 +217,64 @@ function renderPlayerMenu(container, combatState) {
                 <button onclick="combatAction('use_potion')" class="rpg-list-btn" style="border-left:3px solid #ff0;">
                     <b>🧪 Potion</b> <span style="font-size:0.8em; color:#aaa; float:right;">Heal 2d4+2</span>
                 </button>
-             </div>
              `;
+
+            // SKILL: KICK (Bonus)
+            if (skills.kick) {
+                const isActive = combatSkillMode === 'kick';
+                // NOTE: Clicking this needs to allow selecting target... but Kick is a BONUS action.
+                // If we toggle mode, we need to show ENEMIES list to select?
+                // Currently enemies list is in ACTION tab.
+                // Only if we show enemies in Bonus tab too? 
+                // Or we just add a "Kick [Enemy]" list here if active?
+                // Cleaner: Just show the enemy list inside this button or replacements?
+                // Let's replicate the enemy list specifically for Kick if active.
+
+                html += `
+                 <button onclick="toggleSkillMode('kick')" class="rpg-list-btn" style="border-left:3px solid ${isActive ? '#fff' : '#fa0'}; background: ${isActive ? '#430' : '#320'};">
+                    <b>${isActive ? '✅ TARGETING KICK' : '👢 Kick'}</b> <span style="font-size:0.8em; color:#aaa; float:right;">Knockdown</span>
+                 </button>`;
+
+                if (isActive) {
+                    // Render Mini-Enemy List for Kick
+                    const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
+                    html += `<div style="margin-left:10px; border-left:1px dashed #666; padding-left:5px;">`;
+                    enemies.forEach(e => {
+                        if (e.hp <= 0) return;
+                        // Calc Dist
+                        const px = window.gameState.player.xyz[0];
+                        const py = window.gameState.player.xyz[1];
+                        const distChebyshev = Math.max(Math.abs(e.xyz[0] - px), Math.abs(e.xyz[1] - py));
+                        if (distChebyshev > 1.5) return; // Kick Range
+
+                        html += `
+                         <button onclick="combatAction('kick', '${e.id}'); toggleSkillMode('kick');" class="rpg-list-btn" style="padding:4px; font-size:0.9em; background:#222; margin-top:2px;">
+                            👢 Kick ${e.name}
+                         </button>`;
+                    });
+                    html += `</div>`;
+                }
+            }
+
+            // SKILL: RAGE (Bonus)
+            if (skills.rage) {
+                html += `
+                 <button onclick="combatAction('rage')" class="rpg-list-btn" style="border-left:3px solid #f00; background: #300;">
+                    <b>😡 Rage</b> <span style="font-size:0.8em; color:#aaa; float:right;">+2 DMG (2 Turns)</span>
+                 </button>`;
+            }
+
+            html += `</div>`;
         } else {
             html += `<div style="text-align:center; color:#555; padding-top:20px;">Bonus action used.</div>`;
         }
     }
 
     html += `</div>`;
+
+    // Auto-Reset Mode if tab switched?
+    // If I switch to Bonus, Action mode should prob clear?
+    // I'll leave it for now, user manually untoggles.
 
     // FOOTER: End Turn
     html += `
@@ -244,6 +344,7 @@ const combatAction = async function (actionType, targetId = null) {
         if (menuArea) {
             const oldHTML = menuArea.innerHTML;
             menuArea.dataset.oldHTML = oldHTML; // Backup
+            menuArea.dataset.lastHTML = ""; // Force re-render after processing!
             menuArea.innerHTML = `<div style="text-align:center; padding-top:40px; color:#fff;">Processing... <div class="spinner"></div></div>`;
         }
     }

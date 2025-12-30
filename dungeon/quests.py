@@ -7,7 +7,7 @@ QUEST_DATABASE = {
         "giver": "Elder Aethelgard",
         "description": "The North Forest is blocked. Clear the 4 Elemental Dungeons to open trade routes.",
         "objectives": [
-            {"type": "kill_boss", "target": "Fire Guardian", "count": 1},
+            {"type": "kill_boss", "target": "Magma Weaver", "count": 1},
             {"type": "kill_boss", "target": "Ice Guardian", "count": 1},
             {"type": "kill_boss", "target": "Earth Guardian", "count": 1},
             {"type": "kill_boss", "target": "Air Guardian", "count": 1}

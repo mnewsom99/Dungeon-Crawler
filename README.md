@@ -39,7 +39,15 @@ The game now features the Town of Oakhaven (Zone 1).
 *   `python tools/update_game.py`: Utility to fix NPC positions.
 *   `/gallery`: Browser tool to assign sprites to game objects.
 
-## 🔄 Recent Refactoring (v43/v37)
-*   **Modular Frontend**: Split monolithic `ui.js` into `ui_combat.js` and `ui_inventory.js` for better maintainability.
-*   **Modular Backend**: Extracted movement and logic from `dm.py` into `movement.py`.
-*   **Systems**: Improved Combat and Inventory systems with isolated logic.
+## 🔄 Recent Refactoring (v48+)
+*   **Modular Frontend**:
+    *   Split `ui.js` into `ui_combat.js` and `ui_inventory.js`.
+    *   **Refactored Graphics**: Split monolithic `graphics.js` into `assets.js` (Loading), `input.js` (Mouse/Zoom), and `renderer.js` (Pure Drawing).
+    *   Removed `game_v3.js` legacy code.
+*   **Modular Backend**:
+    *   Extracted Movement logic to `movement.py`.
+    *   Centralized Configuration in `gamedata.py`.
+    *   **Performance**: Added Composite Indexes and optimized Database Queries (N+1 fixes).
+    *   **Stability**: Enforced strict session management to resolve `DetachedInstanceError` in multi-threaded contexts (Combat, Movement, Quest Log).
+    *   **Combat AI**: Improved enemy pathfinding to handle flanking and obstacles smarter.
+    *   **Dead Code Cleanup**: Removed legacy `_dead_*` methods from DM.

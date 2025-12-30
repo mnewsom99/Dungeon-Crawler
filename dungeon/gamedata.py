@@ -95,3 +95,25 @@ ABILITIES = {
         "cooldown": 0
     }
 }
+
+NPC_START_CONFIG = {
+    "Gareth": {"x": 10, "y": 8, "z": 1},
+    "Seraphina": {"x": -11, "y": 9, "z": 1},
+    "Elara": {"x": -11, "y": 8, "z": 1},
+    "Elder": {"x": 0, "y": 7, "z": 1}
+}
+
+PLAYER_START_CONFIG = {
+    "name": "Generic Hero",
+    "hp_current": 20,
+    "hp_max": 20,
+    "stats": {
+        "str": 14, "dex": 14, "con": 14, 
+        "int": 10, "wis": 10, "cha": 10
+    },
+    "start_pos": {"x": 0, "y": 0, "z": 1},
+    "inventory": [
+         {"name": "Training Sword", "slot": "main_hand", "is_equipped": True},
+         {"name": "Cloth Tunic", "slot": "chest", "is_equipped": True}
+    ]
+}

@@ -21,6 +21,8 @@ async function fetchState() {
             if (window.updateHeader && data.player) window.updateHeader(data.player.xyz[2]);
             if (window.updateCombatUI && data.combat) window.updateCombatUI(data.combat);
             if (window.updateNearbyList) window.updateNearbyList(data);
+            if (window.updateQuestList) window.updateQuestList(data);
+
             if (window.updateInventoryUI && data.player) window.updateInventoryUI(data.player);
             if (window.updateSkillsUI && data.player) window.updateSkillsUI(data.player);
             if (window.updateSkillsUI && data.player) window.updateSkillsUI(data.player);
