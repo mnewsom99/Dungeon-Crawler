@@ -222,7 +222,7 @@ class CombatSystem:
              encounter.actions_left -= 1
              events.append({"type": "text", "message": f"You wind up for a HEAVY STRIKE against {target.name}!"})
              
-             p_stats = self.dm.player.stats or {"str": 10}
+             p_stats = player.stats or {"str": 10}
              str_mod = self._get_modifier(p_stats.get("str", 10))
              prof_bonus = 2 # Assuming player proficiency bonus is 2
              
@@ -234,7 +234,7 @@ class CombatSystem:
                  dmg += str_mod # Additional damage from heavy strike
                  
                  # Rage Bonus
-                 props = self.dm.player.properties or {}
+                 props = player.properties or {}
                  if props.get("rage_turns", 0) > 0:
                      dmg += 2
                      
@@ -246,7 +246,7 @@ class CombatSystem:
                  if target.hp_current <= 0:
                      target.is_alive = False
                      target.state = "dead"
-                     self.dm.player.xp += 50 # Assuming XP gain for heavy strike kill
+                     player.xp += 50 # Assuming XP gain for heavy strike kill
                      self._generate_loot(target)
                      events.append({"type": "text", "message": f"{target.name} is obliterated!"})
                      events.extend(self._check_victory(encounter))
@@ -263,12 +263,12 @@ class CombatSystem:
              encounter.actions_left -= 1
              events.append({"type": "text", "message": "You sweep your weapon in a wide arc! (Cleave)"})
              
-             p_stats = self.dm.player.stats or {"str": 10}
+             p_stats = player.stats or {"str": 10}
              str_mod = self._get_modifier(p_stats.get("str", 10))
              prof_bonus = 2 # Assuming player proficiency bonus is 2
 
              # Find all adjacent (within 1.5 units, effectively adjacent squares)
-             enemies = [m for m in encounter.monsters if m.is_alive and self._dist(self.dm.player, m) <= 1.5]
+             enemies = [m for m in encounter.monsters if m.is_alive and self._dist(player, m) <= 1.5]
              
              if not enemies:
                  events.append({"type": "text", "message": "You hit nothing but air."})
@@ -278,7 +278,7 @@ class CombatSystem:
                      if hit >= target.armor_class:
                          dmg = roll_dice(8) + str_mod
                          # Rage Bonus
-                         props = self.dm.player.properties or {}
+                         props = player.properties or {}
                          if props.get("rage_turns", 0) > 0: dmg += 2
                          
                          target.hp_current -= dmg
@@ -286,7 +286,7 @@ class CombatSystem:
                          if target.hp_current <= 0:
                              target.is_alive = False
                              target.state = "dead"
-                             self.dm.player.xp += 50 # Assuming XP gain for cleave kill
+                             player.xp += 50 # Assuming XP gain for cleave kill
                              self._generate_loot(target)
                              events.append({"type": "text", "message": f"{target.name} falls!"})
                      else:
@@ -312,12 +312,12 @@ class CombatSystem:
              if not target:
                  target = self._get_nearest_enemy(encounter)
                  
-             if not target or self._dist(self.dm.player, target) > 1.5: # Must be adjacent
+             if not target or self._dist(player, target) > 1.5: # Must be adjacent
                  return {"events": [{"type": "text", "message": "No enemy close enough to kick."}]}
              
              encounter.bonus_actions_left -= 1
              
-             p_stats = self.dm.player.stats or {"str": 10}
+             p_stats = player.stats or {"str": 10}
              str_mod = self._get_modifier(p_stats.get("str", 10))
 
              # Contest: Player STR (Athletics) vs DC 12
@@ -351,10 +351,10 @@ class CombatSystem:
              events.append({"type": "text", "message": "You ROAR with primal fury! (+2 DMG)"})
              events.append({"type": "anim", "actor": "player", "anim": "buff"}) # visual?
              
-             props = dict(self.dm.player.properties or {})
+             props = dict(player.properties or {})
              props["rage_turns"] = 2
-             self.dm.player.properties = props
-             flag_modified(self.dm.player, "properties")
+             player.properties = props
+             flag_modified(player, "properties")
              
              # self.dm.save() # Removed, will commit at end of player_action
              return {"events": events}
@@ -392,7 +392,7 @@ class CombatSystem:
             
             if action_type == "use_potion":
                 heal = roll_dice(4) + roll_dice(4) + 2
-                self.dm.player.hp_current = min(self.dm.player.hp_max, self.dm.player.hp_current + heal)
+                player.hp_current = min(player.hp_max, player.hp_current + heal)
                 events.append({"type": "anim", "actor": "player", "anim": "heal"})
                 events.append({"type": "text", "message": f"You drink a potion and recover <b>{heal} HP</b>."})
             elif action_type == "second_wind":
@@ -497,8 +497,9 @@ class CombatSystem:
         return events
 
     def _resolve_second_wind(self):
+        player = self.session.query(Player).first()
         heal = roll_dice(10) + 1
-        self.dm.player.hp_current = min(self.dm.player.hp_max, self.dm.player.hp_current + heal)
+        player.hp_current = min(player.hp_max, player.hp_current + heal)
         return [
             {"type": "anim", "actor": "player", "anim": "heal"},
             {"type": "text", "message": f"<span style='color:gold'>Second Wind!</span> You recover <b>{heal} HP</b>."}
@@ -507,7 +508,8 @@ class CombatSystem:
     def _resolve_player_attack(self, enemy):
         events = []
         # Stats
-        p_stats = self.dm.player.stats or {"str": 10}
+        player = self.session.query(Player).first()
+        p_stats = player.stats or {"str": 10}
         str_mod = self._get_modifier(p_stats.get("str", 10))
         prof_bonus = 2
         
@@ -535,12 +537,12 @@ class CombatSystem:
             if enemy.hp_current <= 0:
                 enemy.is_alive = False
                 enemy.state = "dead"
-                self.dm.player.xp += 50
+                player.xp += 50
                 
                 # SULFUR BAT: Volatile Explosion (Death Rattle)
                 if enemy.name == "Sulfur Bat":
                      expl_dmg = roll_dice(6)
-                     self.dm.player.hp_current = max(0, self.dm.player.hp_current - expl_dmg)
+                     player.hp_current = max(0, player.hp_current - expl_dmg)
                      events.append({"type": "anim", "actor": "enemy", "anim": "attack"}) # Explosion anim?
                      events.append({"type": "text", "message": f"The <span style='color:yellow'>Sulfur Bat</span> EXPLODES for <b>{expl_dmg}</b> fire damage!"})
 
@@ -601,7 +603,8 @@ class CombatSystem:
             
             if self.session.query(Monster).filter_by(x=new_x, y=new_y, z=actor.z, is_alive=True).first(): blocked = True
             if self.session.query(NPC).filter_by(x=new_x, y=new_y, z=actor.z).first(): blocked = True
-            if new_x == self.dm.player.x and new_y == self.dm.player.y: blocked = True
+            player = self.session.query(Player).first()
+            if new_x == player.x and new_y == player.y: blocked = True
             
             if not blocked:
                 actor.x = new_x
@@ -628,7 +631,8 @@ class CombatSystem:
                      
                      # Simple Block Check (Copy of above)
                      ablocked = False
-                     if anx == self.dm.player.x and any_ == self.dm.player.y: ablocked = True
+                     player = self.session.query(Player).first()
+                     if anx == player.x and any_ == player.y: ablocked = True
                      elif self.session.query(Monster).filter_by(x=anx, y=any_, z=actor.z, is_alive=True).first(): ablocked = True
                      
                      if not ablocked:
@@ -673,7 +677,7 @@ class CombatSystem:
                  # Simple Formula: 4 XP per HP (so a 10 HP rat = 40 XP, Need 100 for Lvl 2)
                  total_xp += (m.hp_max or 10) * 4
             
-            pl = self.dm.player
+            pl = self.session.query(Player).first()
             old_level = pl.level or 1
             pl.xp = (pl.xp or 0) + total_xp
             
@@ -728,10 +732,23 @@ class CombatSystem:
                 
             events.append({"type": "text", "message": msg})
             
+            # --- DUNGEON CLEAR CHECK ---
+            # Check if ANY monsters remain in this dungeon (z=0)
+            remaining_monsters = self.session.query(Monster).filter_by(z=0, is_alive=True).count()
+            if remaining_monsters == 0:
+                 events.append({
+                    "type": "popup",
+                    "title": "DUNGEON CLEARED!",
+                    "content": "The darkness lifts... The dungeon is safe.",
+                    "duration": 6000,
+                    "color": "#00ff00"
+                })
+                 events.append({"type": "text", "message": "<br><span style='color:#0f0; font-size:1.1em; font-weight:bold;'>DUNGEON CLEARED! The air feels lighter.</span>"})
+
         return events
 
     def _has_equipped_effect(self, effect_name):
-        player = self.dm.player
+        player = self.session.query(Player).first()
         if not player.inventory: return False
         for item in player.inventory:
             if item.is_equipped and item.properties and item.properties.get("effect") == effect_name:
@@ -752,7 +769,7 @@ class CombatSystem:
             enemy.state = "combat" 
             return events
 
-        player = self.dm.player
+        player = self.session.query(Player).first()
         dist = max(abs(enemy.x - player.x), abs(enemy.y - player.y))
         attack_range = 1.5
 

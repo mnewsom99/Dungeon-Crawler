@@ -102,7 +102,26 @@ class MovementSystem:
             tile.tile_type = "open_door" # Visual change?
             # Treat as floor for now
         
-        # 3b. Check Zone Transitions (Edges)
+            # Treat as floor for now
+        
+        # 3b. DUNGEON EXITS (Z=0)
+        # Entry Door (0, -1) or (-1 to 1 range close to start)
+        if new_z == 0 and abs(new_x) <= 1 and new_y <= -1:
+             self.teleport_player(0, 0, 1) # Back to Town
+             return [0, 0, 1], "*** You ascend the stairs to Oakhaven. ***"
+             
+        # Boss Exit Door (0, 32)
+        if new_z == 0 and abs(new_x) <= 1 and new_y >= 32:
+             self.teleport_player(0, 0, 1) # Back to Town
+             return [0, 0, 1], "*** You escape the dungeon triumphantly! ***"
+             
+        # 3c. FIRE DUNGEON EXIT (Z=3)
+        # Entry Door moved to (-2, 0) based on user feedback
+        if new_z == 3 and abs(new_x - (-2)) <= 1 and abs(new_y - 0) <= 1:
+             self.teleport_player(-15, 15, 2) # Back to Forest Entrance
+             return [-15, 15, 2], "*** You escape the searing heat and return to the cool forest. ***"
+
+        # 3d. Check Zone Transitions (Edges)
         # Forest (Z=2) -> Town (Z=1) : South Edge (y > 28)
         if new_z == 2 and new_y >= 29:
              self.teleport_player(0, -18, 1) # North Gate of Town
@@ -347,13 +366,49 @@ class MovementSystem:
                        self.session.commit()
 
     def update_visited(self, cx, cy, cz):
+        # 1. Fetch Area (Square covers Max Diamond Radius 5)
         tiles = self.session.query(MapTile).filter(
-            MapTile.x.between(cx-2, cx+2),
-            MapTile.y.between(cy-2, cy+2),
+            MapTile.x.between(cx-5, cx+5),
+            MapTile.y.between(cy-5, cy+5),
             MapTile.z == cz
         ).all()
         
-        for t in tiles:
-            if not t.is_visited:
-                t.is_visited = True
+        # 2. Build Memory Map
+        tile_map = {(t.x, t.y): t for t in tiles}
+        
+        # 3. BFS Flood Fill for Line of Sight
+        queue = [(cx, cy, 0)] # x, y, dist
+        visited = set([(cx, cy)])
+        
+        blockers = ["wall", "wall_grey", "wall_house", "void", "door", "tree", "bedrock_wall"]
+        
+        # We process the queue
+        idx = 0
+        while idx < len(queue):
+            curr_x, curr_y, dist = queue[idx]
+            idx += 1
+            
+            # Reveal this tile
+            if (curr_x, curr_y) in tile_map:
+                t = tile_map[(curr_x, curr_y)]
+                if not t.is_visited:
+                    t.is_visited = True
+                
+                # If this tile is opaque, we see IT, but not PAST it.
+                if t.tile_type in blockers:
+                    continue
+            else:
+                # Void/Empty space acts as full blocker
+                continue
+
+            # Check Range limit (Radius 5)
+            if dist >= 5: continue
+            
+            # Propagate to Neighbors
+            for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                nx, ny = curr_x + dx, curr_y + dy
+                if (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    queue.append((nx, ny, dist + 1))
+                    
         self.session.commit()

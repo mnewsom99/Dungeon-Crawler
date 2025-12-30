@@ -223,6 +223,51 @@
                 }
             });
         }
+
+        // 6. Draw Secrets (Chests, Crates, etc.)
+        if (data.world.secrets) {
+            data.world.secrets.forEach(s => {
+                // If the object lacks xyz, we can't draw it (likely a global secret or held item, but usually they have xyz)
+                if (!s.xyz) return;
+
+                const [sx, sy, sz] = s.xyz;
+                if (sz !== playerPos[2] || !map[`${sx},${sy},${sz}`]) return;
+
+                const dist = Math.abs(sx - playerPos[0]) + Math.abs(sy - playerPos[1]);
+                if (dist > VIS_RADIUS) return;
+
+                const drawX = Math.round(camOffsetX + sx * TILE_SIZE);
+                const drawY = Math.round(camOffsetY + sy * TILE_SIZE);
+
+                let sImg = images['chest']; // Default
+                const name = (s.name || "").toLowerCase();
+
+                if (name.includes('crate')) sImg = images['crate'];
+                else if (name.includes('barrel')) sImg = images['barrel'];
+                else if (name.includes('door')) sImg = images['door'];
+                else if (name.includes('fountain')) sImg = images['fountain'];
+
+                // Fallback for Obsidian Chest if not mapped specifically? 
+                // We keep 'chest' as default, so Obsidian Chest uses chest.png.
+
+                if (sImg) {
+                    ctx.drawImage(sImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
+                } else {
+                    // Fallback visual
+                    ctx.fillStyle = '#ff0';
+                    ctx.fillRect(drawX + TILE_SIZE * 0.25, drawY + TILE_SIZE * 0.25, TILE_SIZE * 0.5, TILE_SIZE * 0.5);
+                }
+
+                // Name Tag on Hover or Zoom?
+                if (ZOOM_LEVEL > 0.8) {
+                    ctx.fillStyle = '#ffd700'; // Gold
+                    ctx.font = `${Math.max(10, 10 * ZOOM_LEVEL)}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(s.name, drawX + TILE_SIZE / 2, drawY - 2);
+                    ctx.textAlign = 'start';
+                }
+            });
+        }
     }
 
     // Export

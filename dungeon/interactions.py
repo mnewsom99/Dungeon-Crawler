@@ -10,8 +10,9 @@ class InteractionManager:
     def handle_interaction(self, action, target_type, target_index):
         """Dispatches interaction handling based on action type."""
         
-        # Ensure player state is fresh
-        self.player = self.dm.player 
+        from .database import Player
+        # Ensure player state is fresh from DB, not cached DM object
+        self.player = self.session.query(Player).first() 
 
         if action == "loot" and target_type == "corpse":
             return self._handle_loot(target_index)
@@ -201,6 +202,10 @@ class InteractionManager:
                     return {"type": "loot_window", "loot": loot, "corpse_id": target_index, "name": obj.name}
 
         if target_index == "secret_door_1":
+                # Verify Distance
+                if abs(2 - self.player.x) > 1 or abs(30 - self.player.y) > 1:
+                     return "Too far away."
+
                 # Trigger Door Reveal at (2, 30)
                 door_tile = self.session.query(MapTile).filter_by(x=2, y=30, z=0).first()
                 if door_tile:

@@ -24,8 +24,8 @@ class WorldSimulation:
              # Check Wall/Water/Void
              t = self.session.query(MapTile).filter_by(x=tx, y=ty, z=tz).first()
              if not t: return True
-             # Allow: floor, grass, floor_wood, open_door, bridge
-             allow_list = ["floor", "floor_wood", "grass", "open_door", "bridge"]
+             # Allow: floor, grass, floor_wood, open_door, bridge, lava
+             allow_list = ["floor", "floor_wood", "grass", "open_door", "bridge", "lava"]
              if t.tile_type not in allow_list: return True
              
              # Check Other Monster

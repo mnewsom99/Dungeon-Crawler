@@ -625,9 +625,18 @@ window.updateHeroStats = function (player) {
 
             // If points available, show upgrade button
             if (points > 0) {
+                // Descriptions
+                let desc = "";
+                if (key === 'str') desc = "+1 Melee Damage & Hit";
+                if (key === 'dex') desc = "+1 Armor Class & Initiative";
+                if (key === 'con') desc = "+2 Max HP";
+                if (key === 'int') desc = "Investigation Bonus";
+                if (key === 'wis') desc = "Perception Bonus";
+                if (key === 'cha') desc = "Better Shop Prices";
+
                 el.innerHTML = `
                     ${val} 
-                    <button onclick="upgradeStat('${key}')" 
+                    <button onclick="upgradeStat('${key}')" title="${desc}"
                         style="background:#0f0; color:#000; padding:0 4px; border:none; cursor:pointer; font-weight:bold; margin-left:5px; border-radius:3px;">
                         +
                     </button>

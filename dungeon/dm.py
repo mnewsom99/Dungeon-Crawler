@@ -167,6 +167,12 @@ class DungeonMaster:
         """Clean robust movement logic (Delegated)."""
         return self.movement.move_player(dx, dy)
 
+    def player_interact(self, action, target_type, target_index):
+        return self.interactions.handle_interaction(action, target_type, target_index)
+
+    def chat_with_npc(self, npc_index, message):
+        return self.dialogue.chat(npc_index, message)
+
 
 
 
@@ -265,7 +271,8 @@ class DungeonMaster:
         from .database import Monster, WorldObject
         from sqlalchemy.orm.attributes import flag_modified
         
-        pl = self.player
+        
+        pl = self.session.query(Player).first()
         skill_bonus = self.get_skill_level("investigation")
         roll = roll_dice(20) + skill_bonus
         

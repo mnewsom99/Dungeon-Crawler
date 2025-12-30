@@ -30,6 +30,10 @@ const bonesImg = new Image(); bonesImg.src = "/static/img/bones.png";
 // NPC (Elara): Fallback or Placeholder
 const npcImg = new Image(); npcImg.src = "/static/img/Sorceress.jpg";
 
+// Objects
+const chestImg = new Image(); chestImg.src = "/static/img/chest.png";
+const crateImg = new Image(); crateImg.src = "/static/img/crate.png";
+
 const spriteCache = {};
 
 // Helper to draw tinted versions of characters if needed
@@ -55,12 +59,12 @@ function requestRedraw() {
 
 // ... Draw Logic ...
 
-function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
-    return; // DEPRECATED: Render logic is in modules/graphics.js
+function drawMap(playerPos, visibleMap, enemies, corpses, npcs, secrets) {
     if (!visibleMap) visibleMap = {};
     if (!enemies) enemies = [];
     if (!corpses) corpses = [];
     if (!npcs) npcs = [];
+    if (!secrets) secrets = [];
 
     if (!cameraPos) cameraPos = [...playerPos];
 

@@ -534,6 +534,7 @@ window.renderLootModal = function (data) {
 
     document.getElementById('loot-title').innerText = "LOOT: " + data.name;
     document.getElementById('loot-modal').style.display = 'block';
+    if (window.audioSystem) window.audioSystem.play('door');
 
     window.activeLootCorpseId = data.corpse_id;
 
