@@ -21,7 +21,8 @@
 
         <!-- Header (Floating) -->
         <header style="text-align: center; padding: 10px; pointer-events: none;">
-            <h1 style="color: #00ff00; margin: 0; opacity: 0.8; text-shadow: 0 0 5px #000;">Dungeon Crawler</h1>
+            <h1 id="game-title" style="color: #00ff00; margin: 0; opacity: 0.8; text-shadow: 0 0 5px #000;">Dungeon
+                Crawler</h1>
         </header>
 
         <!-- Left Panel: Character Sheet -->
@@ -51,6 +52,16 @@
                                 </tr>
                             </thead>
                             <tbody id="stat-body">
+                                <tr>
+                                    <td>LVL</td>
+                                    <td id="stat-lvl" style="color:#ffd700; font-weight:bold;">1</td>
+                                    <td>Hero Level</td>
+                                </tr>
+                                <tr>
+                                    <td>XP</td>
+                                    <td id="stat-xp">0</td>
+                                    <td>Experience</td>
+                                </tr>
                                 <tr>
                                     <td>HP</td>
                                     <td id="stat-hp" style="color:#0f0; font-weight:bold;">10/10</td>
@@ -178,19 +189,29 @@
             style="display: none; pointer-events: auto; position: absolute; top: 150px; left: 340px; width: 300px; border: 2px solid #800; background: rgba(20, 0, 0, 0.9); z-index: 100;">
             <div class="drag-handle" style="background: #400;"><span class="panel-title"
                     style="color: #fca;">COMBAT</span> <span class="minimize-btn">_</span></div>
-            <div class="panel-content" style="text-align: center; padding: 15px;">
-                <h3 id="combat-enemy-name" style="color: #ff4444; margin-top: 0;">Enemy</h3>
-                <div style="margin: 10px 0;">
-                    <span style="color: #aaa;">HP:</span>
-                    <span id="combat-enemy-hp" style="color: #fff; font-weight: bold;">?</span>
+            <div class="panel-content" style="text-align: left; padding: 10px;">
+                <!-- Header: Phase & Info -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:5px;">
+                    <span id="combat-phase" style="color:#ffd700; font-weight:bold;">ACTION PHASE</span>
+                    <span id="combat-ap" style="color:#aaa; font-size:0.8em;">AP: 1 | M: 6 | BA: 1</span>
                 </div>
 
-                <div class="combat-actions"
-                    style="display: flex; gap: 10px; justify-content: center; margin-top: 15px;">
-                    <button onclick="combatAction('attack')" class="btn-combat btn-attack">⚔ Attack</button>
-                    <button onclick="combatAction('second_wind')" class="btn-combat btn-defend"
-                        style="background: #004400; color: #8f8; border-color: #0f0;">💚 Heal</button>
-                    <button onclick="combatAction('flee')" class="btn-combat btn-flee">🏃 Flee</button>
+                <!-- Turn Order Strip -->
+                <div id="combat-turn-order"
+                    style="font-size:0.75em; color:#666; white-space:nowrap; overflow:hidden; margin-bottom:8px; border-bottom:1px solid #444;">
+                    Turn: You, Enemy...
+                </div>
+
+                <!-- Enemy List -->
+                <div id="combat-enemy-list"
+                    style="max-height: 120px; overflow-y: auto; background: #111; border: 1px solid #444; margin-bottom: 10px; font-size:0.9em;">
+                    <!-- Populated by JS -->
+                    <div style="padding:2px;">Targeting: None</div>
+                </div>
+
+                <!-- Action Grid -->
+                <div id="combat-buttons" style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                    <!-- Populated by JS -->
                 </div>
             </div>
         </div>
@@ -224,6 +245,14 @@
                         style="background:none; border:none; font-size:1.5em; cursor:pointer; margin-left:auto;">&times;</button>
                 </div>
                 <div id="chat-history"></div>
+                <!-- ADDED INPUT (HIDDEN for Button-Only Mode) -->
+                <div style="display:none; border-top:1px solid #444;">
+                    <input type="text" id="chat-input" placeholder="Type a message..."
+                        style="flex:1; background:#000; border:none; color:#ddd; padding:10px;"
+                        onkeypress="if(event.key==='Enter') sendChat()">
+                    <button onclick="sendChat()"
+                        style="background:#444; color:#fff; border:none; padding:10px 15px; cursor:pointer;">Send</button>
+                </div>
             </div>
         </div>
 
@@ -291,17 +320,13 @@
     </div>
 
     <!-- Game Modules -->
-    <script src="{{ url_for('static', filename='js/modules/core.js') }}?v=46"></script>
-    <script src="{{ url_for('static', filename='js/modules/audio.js') }}?v=46"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui.js') }}?v=46"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui_combat.js') }}?v=46"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui_inventory.js') }}?v=46"></script>
-    <!-- Refactored Graphics Modules -->
-    <script src="{{ url_for('static', filename='js/modules/assets.js') }}?v=49"></script>
-    <script src="{{ url_for('static', filename='js/modules/input.js') }}?v=49"></script>
-    <script src="{{ url_for('static', filename='js/modules/renderer.js') }}?v=49"></script>
+    <!-- Game Logic -->
+    <!-- <script src="/static/js/ice_renderer.js?v=999"></script> -->
+    <script src="/static/js/renderer_v3.js?v=7"></script>
+    <script src="/static/js/ui_v2.js?v=7"></script> <!-- BUMP VERSION -->
+    <script src="/static/js/modules/assets.js?v=50"></script>
     <!-- MAIN LOGIC -->
-    <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=46"></script>
+    <!-- <script src="{{ url_for('static', filename='js/modules/main.js') }}?v=50"></script> -->
 </body>
 
 </html>

@@ -25,8 +25,10 @@ class DialogueSystem:
              
         # 2. Loose Range Check
         dist = abs(target.x - self.player.x) + abs(target.y - self.player.y)
-        if target.z != self.player.z or dist > 3:
-             return "You have wandered too far away.", "System", False
+        print(f"DEBUG: Chat Range Check: Player({self.player.x},{self.player.y},{self.player.z}) vs NPC({target.x},{target.y},{target.z}) -> Dist: {dist}")
+        
+        if target.z != self.player.z or dist > 10: # Relaxed to 10 for debug
+             return f"You have wandered too far away. (Dist: {dist}, Z: {target.z}/{self.player.z})", "System", False
              
         # 3. Get / Init State
         state = target.quest_state or {}

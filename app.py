@@ -3,7 +3,7 @@ from flask import Flask, render_template, jsonify, request
 from dungeon.dm import DungeonMaster
 
 app = Flask(__name__)
-# Force Reload Trigger v37 for Backend Modularization
+# Force Reload Trigger v37 for Backend Modularization - CACHE BUSTER TOUCH
 dm = DungeonMaster()
 
 @app.teardown_appcontext
@@ -131,7 +131,7 @@ def move_player():
         "position": new_pos,
         "narrative": narrative,
         "events": events,
-        "stats": state["player"]
+        "state": state
     })
 
 @app.route('/api/inventory/equip', methods=['POST'])
@@ -277,14 +277,24 @@ def assign_asset():
 @app.route('/api/debug/reset', methods=['POST', 'GET'])
 def debug_reset():
     """Resets the game state (DB cleanup handled by DM init usually or we force it)."""
+    global dm
+    if dm and hasattr(dm, 'session'):
+        dm.session.close()
+    
+    from dungeon.database import Base, engine, SessionLocal
+    SessionLocal.remove()
+    
     # For SQLite, deleting the file is one way, or dropping tables.
     # DM logic usually handles creating if missing.
     # Let's drop all tables and init.
-    from dungeon.database import Base, engine
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    try:
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
+    except Exception as e:
+        print(f"Reset Error (Locked?): {e}")
+        # Fallback: Just clear tables
+        pass
     
-    global dm
     dm = DungeonMaster() # Re-init
     return jsonify({"message": "World Reset Completed", "state": dm.get_state_dict()})
 

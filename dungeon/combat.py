@@ -9,6 +9,38 @@ class CombatSystem:
         self.dm = dm_instance
         self.session = dm_instance.session
 
+    def _award_xp(self, player, amount):
+        """Awards XP and handles Level Ups."""
+        player.xp = (player.xp or 0) + amount
+        
+        # Level Up Logic
+        next_level_xp = (player.level or 1) * 150
+        events = []
+        
+        while player.xp >= next_level_xp:
+            player.xp -= next_level_xp
+            player.level = (player.level or 1) + 1
+            
+            # Growth
+            player.hp_max += 5
+            player.hp_current = player.hp_max
+            
+            # Stat Point
+            stats = dict(player.stats or {})
+            stats['unspent_points'] = stats.get('unspent_points', 0) + 1
+            player.stats = stats
+            
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(player, "stats")
+            
+            # Add Level Up Event
+            events.append({"type": "popup", "title": "LEVEL UP!", "content": f"Level {player.level}!", "color": "#00ff00", "duration": 3000})
+            events.append({"type": "text", "message": f"<span style='color:#0f0'><b>LEVEL UP!</b></span> You are now Level {player.level}. (+1 Stat Point, +5 HP)"})
+            
+            next_level_xp = player.level * 150
+            
+        return events
+
     def _get_modifier(self, score):
         return math.floor((score - 10) / 2)
 
@@ -188,6 +220,11 @@ class CombatSystem:
                  
             encounter.actions_left -= 1
             result_events = self._resolve_player_attack(target)
+            
+            # Check Victory
+            is_win, v_events = self._check_victory(encounter)
+            result_events.extend(v_events)
+            
             self.session.commit()
             return {"events": result_events}
 
@@ -246,10 +283,17 @@ class CombatSystem:
                  if target.hp_current <= 0:
                      target.is_alive = False
                      target.state = "dead"
-                     player.xp += 50 # Assuming XP gain for heavy strike kill
+                     
+                     # XP & Loot
+                     xp_gain = (target.hp_max or 10) * 4
+                     events.extend(self._award_xp(player, xp_gain))
+                     events.append({"type": "popup", "title": "VICTORY", "content": f"+{xp_gain} XP", "color": "gold", "duration": 2000})
+
                      self._generate_loot(target)
                      events.append({"type": "text", "message": f"{target.name} is obliterated!"})
-                     events.extend(self._check_victory(encounter))
+                     
+                     is_win, v_events = self._check_victory(encounter)
+                     events.extend(v_events)
              else:
                  events.append({"type": "popup", "title": "MISS!", "content": "Swung too wide!", "color": "#aa0", "duration": 1000})
                  events.append({"type": "text", "message": f"You miss {target.name} with the heavy swing."})
@@ -401,10 +445,43 @@ class CombatSystem:
         elif action_type == "flee":
              active = self.session.query(CombatEncounter).filter_by(is_active=True).first()
              if active:
+                 # 1. Calculate Escape Vector (Average Enemy Position)
+                 avg_x, avg_y, count = 0, 0, 0
+                 for m in active.monsters:
+                     avg_x += m.x; avg_y += m.y; count += 1
+                 
+                 target_x, target_y = player.x, player.y
+                 if count > 0:
+                     avg_x /= count; avg_y /= count
+                     dx = player.x - avg_x
+                     dy = player.y - avg_y
+                     mag = max(abs(dx), abs(dy), 0.1) # Avoid div0
+                     
+                     # Push 5 tiles away
+                     push_dist = 5
+                     target_x = int(player.x + (dx/mag * push_dist))
+                     target_y = int(player.y + (dy/mag * push_dist))
+
+                 # 2. Apply Teleport (Force)
+                 # Note: Ideally we check walls, but for 'scrambling away' we might clip.
+                 # Let's try to map-check or just do it.
+                 # Safe Clamp?
+                 player.x = target_x
+                 player.y = target_y
+                 
+                 # 3. End Combat
                  active.is_active = False
                  for m in active.monsters: m.state = "idle"
+                 
                  self.session.commit()
-                 return {"events": [{"type": "text", "message": "You fled the battle!"}]}
+                 
+                 # 4. Update Fog of War at new location
+                 self.dm.movement.update_visited(player.x, player.y, player.z)
+
+                 return {"events": [
+                     {"type": "text", "message": "You scrambled away from the battle!"},
+                     {"type": "popup", "title": "ESCAPED!", "content": "Battle Ended", "color": "#aaf"}
+                 ]}
 
         # No Auto-Advance. Player must click End Turn.
         self.session.commit()
@@ -518,6 +595,7 @@ class CombatSystem:
         hit_mod = str_mod + prof_bonus
         total_hit = roll + hit_mod
         
+        events.append({"type": "popup", "title": "ATTACK", "content": f"You attack {enemy.name}!", "duration": 1000})
         events.append({"type": "anim", "actor": "player", "anim": "attack"})
         
         if total_hit >= enemy.armor_class:
@@ -537,7 +615,11 @@ class CombatSystem:
             if enemy.hp_current <= 0:
                 enemy.is_alive = False
                 enemy.state = "dead"
-                player.xp += 50
+                
+                # Dynamic XP
+                xp_gain = (enemy.hp_max or 10) * 4
+                events.extend(self._award_xp(player, xp_gain))
+                events.append({"type": "popup", "title": "VICTORY", "content": f"+{xp_gain} XP", "color": "gold", "duration": 2000})
                 
                 # SULFUR BAT: Volatile Explosion (Death Rattle)
                 if enemy.name == "Sulfur Bat":
@@ -559,11 +641,13 @@ class CombatSystem:
                 self._generate_loot(enemy)
                 flag_modified(enemy, "loot")
                 
-                events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span>"})
+                events.append({"type": "text", "message": f"You slash the {enemy.name} for <b>{dmg}</b> damage. <span style='color:red'>It falls dead!</span> <span style='color:#ccc; font-size:0.9em'>(Roll {roll}+{hit_mod}={total_hit})</span>"})
             else:
-                events.append({"type": "text", "message": f"You hit {enemy.name} for <b>{dmg}</b> damage!"})
+                events.append({"type": "text", "message": f"You hit {enemy.name} for <b>{dmg}</b> damage! <span style='color:#ccc; font-size:0.9em'>(Roll {roll}+{hit_mod}={total_hit})</span>"})
+                events.append({"type": "popup", "title": "HIT!", "content": f"{dmg} Damage", "color": "#ff3333", "duration": 1200})
         else:
-            events.append({"type": "text", "message": f"You swing at {enemy.name} but miss (Rolled {total_hit})."})
+            events.append({"type": "text", "message": f"You swing at {enemy.name} but miss. <span style='color:#ccc; font-size:0.9em'>(Roll {roll}+{hit_mod}={total_hit} vs AC {enemy.armor_class})</span>"})
+            events.append({"type": "popup", "title": "MISS", "content": "You missed!", "color": "#ffd700", "duration": 1000})
             
         return events
 
@@ -664,88 +748,36 @@ class CombatSystem:
     def _check_victory(self, encounter):
         """Checks if all monsters are dead and ends combat if so."""
         # Query directly to ensure we aren't using stale 'encounter.monsters' list from memory
-        # alive_monsters = [m for m in encounter.monsters if m.is_alive]
-        alive_monsters = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
-        
+        try:
+             alive_monsters = self.session.query(Monster).filter_by(encounter_id=encounter.id, is_alive=True).all()
+        except:
+             return False, []
+
         events = []
         if not alive_monsters:
             encounter.is_active = False
             
-            # --- XP CALCULATION ---
-            total_xp = 0
-            for m in encounter.monsters:
-                 # Simple Formula: 4 XP per HP (so a 10 HP rat = 40 XP, Need 100 for Lvl 2)
-                 total_xp += (m.hp_max or 10) * 4
-            
-            pl = self.session.query(Player).first()
-            old_level = pl.level or 1
-            pl.xp = (pl.xp or 0) + total_xp
-            
-            # --- LEVEL UP CHECK ---
-            # Threshold: Level * 150 (Level 1->2 needs 150 total XP)
-            next_level_xp = old_level * 150
-            leveled_up = False
-            
-            while pl.xp >= next_level_xp:
-                pl.xp -= next_level_xp
-                pl.level += 1
-                leveled_up = True
-                
-                # Stat Growths
-                hp_gain = 5 # Small fixed growth
-                pl.hp_max += hp_gain
-                pl.hp_current = pl.hp_max # Full Heal
-                
-                # Grant Stat Point
-                # Ensure stats dict exists and is mutable
-                stats = dict(pl.stats or {})
-                if 'unspent_points' not in stats: stats['unspent_points'] = 0
-                stats['unspent_points'] += 1
-                pl.stats = stats
-                
-                # Flag modified for JSON
-                from sqlalchemy.orm.attributes import flag_modified
-                flag_modified(pl, "stats")
-                
-                next_level_xp = pl.level * 150
-                
-            self.session.commit()
+            events.append({"type": "text", "message": "<b>Combat Victory!</b>"})
+            events.append({"type": "popup", "title": "VICTORY", "content": "Battle Won!", "color": "gold", "duration": 2000})
 
-            events.append({
-                "type": "popup", 
-                "title": "VICTORY!", 
-                "content": f"Combat ended. Gained {total_xp} XP.",
-                "duration": 3000,
-                "color": "#d4af37" 
-            })
-            
-            msg = f"<b>Victory!</b> You gained <span style='color:#0f0'>{total_xp} XP</span>."
-            if leveled_up:
-                msg += f"<br><span style='color:#ff0; font-size:1.2em;'>LEVEL UP! You are now Level {pl.level}!</span>"
-                events.append({
-                    "type": "popup",
-                    "title": "LEVEL UP!",
-                    "content": f"Reached Level {pl.level}!",
-                    "duration": 5000,
-                    "color": "#ffff00"
-                })
-                
-            events.append({"type": "text", "message": msg})
-            
             # --- DUNGEON CLEAR CHECK ---
             # Check if ANY monsters remain in this dungeon (z=0)
-            remaining_monsters = self.session.query(Monster).filter_by(z=0, is_alive=True).count()
-            if remaining_monsters == 0:
-                 events.append({
-                    "type": "popup",
-                    "title": "DUNGEON CLEARED!",
-                    "content": "The darkness lifts... The dungeon is safe.",
-                    "duration": 6000,
-                    "color": "#00ff00"
-                })
-                 events.append({"type": "text", "message": "<br><span style='color:#0f0; font-size:1.1em; font-weight:bold;'>DUNGEON CLEARED! The air feels lighter.</span>"})
+            # Only check if we are actually in that dungeon context (simple check)
+            try:
+                remaining_monsters = self.session.query(Monster).filter_by(z=0, is_alive=True).count()
+                if remaining_monsters == 0:
+                     events.append({
+                        "type": "popup",
+                        "title": "DUNGEON CLEARED!",
+                        "content": "The darkness lifts...",
+                        "duration": 6000,
+                        "color": "#00ff00"
+                    })
+                     events.append({"type": "text", "message": "<br><span style='color:#0f0; font-size:1.1em; font-weight:bold;'>DUNGEON CLEARED! The air feels lighter.</span>"})
+            except: pass
 
-        return events
+            return True, events
+        return False, events
 
     def _has_equipped_effect(self, effect_name):
         player = self.session.query(Player).first()
@@ -807,6 +839,7 @@ class CombatSystem:
                      events.append({"type": "text", "message": f"The <span style='color:orange'>Cinder-Hound's</span> heat burns you for {burn_dmg}!"})
 
             if not executed_special and dist <= 1.5:
+                events.append({"type": "popup", "title": f"{enemy.name.upper()} ATTACKS", "content": "Prepare to defend!", "color": "#f88", "duration": 1000})
                 events.append({"type": "anim", "actor": "enemy", "anim": "attack"})
                 
                 # Attack
@@ -818,6 +851,7 @@ class CombatSystem:
                     dmg = roll_dice(6) + str_mod
                     player.hp_current = max(0, player.hp_current - dmg)
                     events.append({"type": "text", "message": f"{enemy.name} hits you for <span style='color:red'>{dmg}</span> dmg!"})
+                    events.append({"type": "popup", "title": "HIT", "content": f"Took {dmg} Damage!", "color": "#d00", "duration": 1200})
                     
                     if player.hp_current == 0:
                         # Player Death
@@ -829,6 +863,7 @@ class CombatSystem:
                         if encounter: encounter.is_active = False
                 else:
                      events.append({"type": "text", "message": f"{enemy.name} misses you."})
+                     events.append({"type": "popup", "title": "DODGED", "content": "Enemy missed!", "color": "#afa", "duration": 1000})
         else:
              # Fallback for far away or blocked enemies
              if not events:
@@ -921,20 +956,4 @@ class CombatSystem:
         
         enemy.loot = loot
 
-    def _get_modifier(self, stat_value):
-        return (stat_value - 10) // 2
-    
-    def _dist(self, p1, p2):
-        return max(abs(p1.x - p2.x), abs(p1.y - p2.y))
-    
-    def _get_nearest_enemy(self, encounter):
-        px, py = self.dm.player.x, self.dm.player.y
-        nearest = None
-        min_dist = 999
-        for m in encounter.monsters:
-             if not m.is_alive: continue
-             d = max(abs(m.x - px), abs(m.y - py))
-             if d < min_dist:
-                 min_dist = d
-                 nearest = m
-        return nearest
+

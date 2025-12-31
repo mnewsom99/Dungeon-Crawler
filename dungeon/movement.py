@@ -61,7 +61,7 @@ class MovementSystem:
              # Or moved? The original logic returned player pos (didn't move).
              return [player.x, player.y, player.z], msg
 
-        if tile.tile_type not in ["floor", "floor_wood", "floor_volcanic", "door", "door_stone", "open_door", "grass", "bridge", "steam_vent", "lava", "signpost", "street_lamp", "fountain"]:
+        if tile.tile_type not in ["floor", "floor_wood", "floor_volcanic", "floor_ice", "door", "door_stone", "open_door", "grass", "bridge", "steam_vent", "lava", "ice_spikes", "signpost", "street_lamp", "fountain", "stairs_down"]:
              print(f"DEBUG: Move Blocked! Tile Type: '{tile.tile_type}' not in whitelist.")
              # Block: wall, wall_house, tree, water, anvil, shelf
              if not tile.is_visited:
@@ -70,6 +70,11 @@ class MovementSystem:
              return [player.x, player.y, player.z], f"You bump into a wall ({tile.tile_type})."
 
         # 3. Check Door Transition (Tile Event)
+        if tile.tile_type == "stairs_down":
+             if new_z == 1: # Town -> Dungeon
+                 self.teleport_player(0, 0, 0)
+                 return [0, 0, 0], "*** You descend into the Dark Dungeon... ***"
+
         if tile.tile_type in ["door", "door_stone"]:
             # Hacky Secret Door check (Dungeon -> Town)
             print(f"DM: Door interaction at {new_x},{new_y},{new_z}")
@@ -96,6 +101,12 @@ class MovementSystem:
 
                 return [0, 0, 3], "*** You descend into the Volcanic Depths! ***<br><i>(Quest 'Elemental Balance' Updated)</i>"
 
+            # --- ICE DUNGEON ENTRANCE (Forest Z=2 -> Z=4) ---
+            # Location approx (-15, -20)
+            if new_z == 2 and abs(new_x - (-15)) <= 1 and abs(new_y - (-20)) <= 1:
+                self.teleport_player(0, 0, 4) # Ice Dungeon Start
+                return [0, 0, 4], "*** You enter the Frozen Caverns! ***"
+
             # ... (Rest of existing door logic if needed) ...
             
             # Normal door (open it?)
@@ -120,6 +131,13 @@ class MovementSystem:
         if new_z == 3 and abs(new_x - (-2)) <= 1 and abs(new_y - 0) <= 1:
              self.teleport_player(-15, 15, 2) # Back to Forest Entrance
              return [-15, 15, 2], "*** You escape the searing heat and return to the cool forest. ***"
+
+        # 3e. ICE DUNGEON EXIT (Z=4)
+        # Door is at (0, -2).
+        if new_z == 4 and new_x == 0 and new_y <= -2:
+             self.teleport_player(-15, -20, 2) # Back to Forest
+             return [-15, -20, 2], "*** You leave the freezing cold behind. ***"
+
 
         # 3d. Check Zone Transitions (Edges)
         # Forest (Z=2) -> Town (Z=1) : South Edge (y > 28)
@@ -346,6 +364,9 @@ class MovementSystem:
             elif z == 3:
                 builder = LevelBuilder(self.session)
                 builder.generate_fire_dungeon(z)
+            elif z == 4:
+                builder = LevelBuilder(self.session)
+                builder.generate_ice_dungeon(z)
         
         # Force visit surrounding
         self.update_visited(x, y, z)

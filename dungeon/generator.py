@@ -247,6 +247,7 @@ class LevelBuilder:
 
         # --- New Decorations ---
         tiles[(0, 0)] = "fountain"      # Centerpiece
+        tiles[(0, -1)] = "stairs_down"  # Dungeon Entrance
         
         # Lamps
         tiles[(-2, -2)] = "street_lamp"
@@ -411,9 +412,8 @@ class LevelBuilder:
         # 5. Commit to DB
         game_map = []
         for (pos, t_type) in tiles.items():
-            game_map.append(MapTile(x=pos[0], y=pos[1], z=z, tile_type=t_type, is_visited=True)) # Forest is open, auto-visited? Or Fog of War?
-            # Let's keep it Fog of War: is_visited=False
-            # But the path should be visible?
+            game_map.append(MapTile(x=pos[0], y=pos[1], z=z, tile_type=t_type, is_visited=True))
+            # Fog of war: is_visited=True logic kept as requested
         
         # Auto-visit the starting path for convenience
         for m in game_map:
@@ -526,6 +526,8 @@ class LevelBuilder:
 
         # BOSS: Magma Weaver (at end of longest path approx)
         boss_x, boss_y = max(valid_floors, key=lambda p: abs(p[0]) + abs(p[1]))
+        if boss_x == 0 and boss_y == 0: boss_x, boss_y = 20, 20 # Fallback
+
         self.session.add(Monster(name="Magma Weaver", hp_current=80, hp_max=80, 
                                  x=boss_x, y=boss_y, z=z, state="alive", family="boss",
                                  stats={"str": 16, "dex": 14, "int": 12}))
@@ -533,5 +535,138 @@ class LevelBuilder:
         # Boss Chest
         chest_loot = [{"id": "item_core", "name": "Igneous Core", "item_type": "material", "properties": {"icon": "🔥"}}]
         self.session.add(WorldObject(name="Obsidian Chest", obj_type="chest", x=boss_x, y=boss_y-1, z=z, properties={"loot": chest_loot}))
+
+        self.session.commit()
+
+    def generate_ice_dungeon(self, z):
+        """Generate the Ice Dungeon (Z=4)."""
+        print(f"Generator: Building Ice Dungeon at Z={z}...")
+        import random
+
+        # 1. Base: Frozen Floor
+        # Structure: Large caverns connected by narrow icy corridors
+        floors = set()
+        walls = set()
+        hazards = set() # Ice spikes
+        
+        # Entrance Room (0,0)
+        # 5x5 Entry Room
+        for x in range(-2, 3):
+            for y in range(-2, 3):
+                floors.add((x, y))
+
+        # Procedural Generation: Cellular Automata for organic caves
+        # Initialize grid
+        width, height = 50, 50
+        grid = {}
+        for x in range(-width, width):
+            for y in range(-width, width):
+                grid[(x,y)] = 1 if (random.random() < 0.45) else 0 # 1=Wall, 0=Floor
+        
+        # Clear Center
+        for x in range(-3, 4):
+            for y in range(-3, 4):
+                grid[(x,y)] = 0
+                
+        # CA Steps (Smooth it out)
+        for _ in range(4):
+            new_grid = grid.copy()
+            for x in range(-width+1, width-1):
+                for y in range(-width+1, width-1):
+                    # Count neighbors
+                    count = 0
+                    for dx in [-1,0,1]:
+                        for dy in [-1,0,1]:
+                            if dx==0 and dy==0: continue
+                            if grid.get((x+dx, y+dy), 1) == 1: count += 1
+                    
+                    if grid[(x,y)] == 1:
+                        if count < 4: new_grid[(x,y)] = 0 # Die (become floor)
+                    else:
+                        if count > 5: new_grid[(x,y)] = 1 # Born (become wall)
+            grid = new_grid
+            
+        # Extract to Sets
+        # Also ensure connectivity (Flood Fill from 0,0)
+        accessible = set()
+        queue = [(0,0)]
+        visited = set([(0,0)])
+        while queue:
+            cx, cy = queue.pop(0)
+            floors.add((cx, cy))
+            
+            for dx, dy in [(0,1), (0,-1), (1,0), (-1,0)]:
+                nx, ny = cx+dx, cy+dy
+                if abs(nx) < width and abs(ny) < width:
+                    if grid.get((nx, ny)) == 0 and (nx, ny) not in visited:
+                        visited.add((nx, ny))
+                        queue.append((nx, ny))
+
+        # Add Walls surrounding accessible floors
+        for x, y in floors:
+            for dx in [-1, 0, 1]:
+                for dy in [-1, 0, 1]:
+                    nx, ny = x+dx, y+dy
+                    if (nx, ny) not in floors:
+                        walls.add((nx, ny))
+
+        # 2. Add Hazards (Ice Spikes)
+        # Random clusters in open areas
+        valid_floors = list(floors)
+        for _ in range(20):
+            cx, cy = random.choice(valid_floors)
+            if abs(cx) < 5 and abs(cy) < 5: continue # Safe zone
+            hazards.add((cx, cy))
+            # Cluster
+            for dx in range(-1, 2):
+                if random.random() < 0.5:
+                     hazards.add((cx+dx, cy))
+
+        # 3. Commit Tiles
+        for (x, y) in floors:
+            t_type = "floor_ice"
+            if (x, y) in hazards: t_type = "ice_spikes"
+            
+            # Exit Door
+            if x == 0 and y == -2: t_type = "door_stone"
+            
+            self.session.add(MapTile(x=x, y=y, z=z, tile_type=t_type, is_visited=False)) # Fog of war
+
+        for (x, y) in walls:
+            if x == 0 and y == -2: continue # Don't overwrite door
+            self.session.add(MapTile(x=x, y=y, z=z, tile_type="wall_ice", is_visited=False))
+
+        # 4. Monsters
+        # Theme: High Defense (Golems), Fast (Wolves), Magic (Cryomancers)
+        enemies = [
+            ("Frost Wolf", 30, "beast"),    # Fast, Pack
+            ("Ice Golem", 60, "golem"),     # Tanky
+            ("Cryomancer", 25, "undead"),   # Ranged/Magic
+            ("Ice Wraith", 20, "undead")    # Evasive
+        ]
+        
+        enemy_count = 0
+        while enemy_count < 25:
+             ex, ey = random.choice(valid_floors)
+             if (ex, ey) in hazards: continue # Don't spawn on spikes
+             if abs(ex) < 6 and abs(ey) < 6: continue
+             
+             etype = random.choice(enemies)
+             self.session.add(Monster(name=etype[0], hp_current=etype[1], hp_max=etype[1], 
+                                      x=ex, y=ey, z=z, state="alive", family=etype[2]))
+             enemy_count += 1
+
+        # BOSS: Frost Giant Jarl
+        # Pick a room far away
+        boss_x, boss_y = max(valid_floors, key=lambda p: abs(p[0]) + abs(p[1]))
+        if boss_x == 0 and boss_y == 0: boss_x, boss_y = 20, 20
+
+        self.session.add(Monster(name="Frost Giant Jarl", hp_current=150, hp_max=150, 
+                                 x=boss_x, y=boss_y, z=z, state="alive", family="boss",
+                                 stats={"str": 20, "dex": 8, "con": 18, "int": 10}))
+                                 
+        # Boss Chest
+        chest_loot = [{"id": "item_frost_shard", "name": "Glacial Shard", "item_type": "material", "properties": {"icon": "❄️"}}]
+        self.session.add(WorldObject(name="Frozen Chest", obj_type="chest", x=boss_x, y=boss_y-1, z=z, properties={"loot": chest_loot}))
 
         self.session.commit()

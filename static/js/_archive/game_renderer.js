@@ -124,6 +124,35 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
                 if (floorImg.complete && floorImg.naturalHeight !== 0) ctx.drawImage(floorImg, drawX, drawY, TILE_SIZE, TILE_SIZE);
                 else { ctx.fillStyle = '#2b2b2b'; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE); }
             }
+        } else if (tileType === 'floor_ice' || tileType === 'ice') { // Explicit
+            ctx.fillStyle = '#a5f2f3'; // Ice Blue
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            ctx.fillStyle = '#e0ffff'; // Lighter reflections
+            ctx.fillRect(drawX + Math.random() * 20, drawY + Math.random() * 20, 2, 2);
+        } else if (tileType === 'wall_ice') {
+            ctx.fillStyle = '#5f9ea0'; // CadetBlue (Ice Wall)
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            ctx.fillStyle = '#afeeee'; // PaleTurquoise Highlight
+            ctx.fillRect(drawX, drawY, TILE_SIZE, 4);
+            ctx.fillRect(drawX, drawY, 4, TILE_SIZE);
+        } else if (tileType === 'ice_spikes') {
+            // Ice Background
+            ctx.fillStyle = '#a5f2f3';
+            ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            // Spikes
+            ctx.fillStyle = '#ffffff';
+            // Triangle 1
+            ctx.beginPath();
+            ctx.moveTo(drawX + 5, drawY + 25);
+            ctx.lineTo(drawX + 10, drawY + 5);
+            ctx.lineTo(drawX + 15, drawY + 25);
+            ctx.fill();
+            // Triangle 2
+            ctx.beginPath();
+            ctx.moveTo(drawX + 18, drawY + 28);
+            ctx.lineTo(drawX + 23, drawY + 10);
+            ctx.lineTo(drawX + 28, drawY + 28);
+            ctx.fill();
         } else if (tileType.startsWith('mtn_') || tileType === 'door_stone') {
             // 1. Draw Background (Grass) so alpha transparency works
             // We use conditional grass here in case we reuse this tile elsewhere
@@ -226,7 +255,6 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
                 ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = '#ff8c00';
                 ctx.fillRect(drawX + Math.random() * 20, drawY + Math.random() * 20, 6, 6);
-            } else if (tileType === 'ice') {
                 ctx.fillStyle = '#a5f2f3'; // Ice Blue
                 ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
                 ctx.fillStyle = '#ffffff';
@@ -380,6 +408,90 @@ function drawMap(playerPos, visibleMap, enemies, corpses, npcs) {
                     ctx.fillStyle = '#f00';
                     ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
                     return; // SKIP REST OF LOOP
+                }
+                else if (name.includes("ice golem")) {
+                    // BLOCKY WHITE/GREY
+                    ctx.fillStyle = "#ced4da";
+                    ctx.fillRect(drawX + 4, drawY + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    ctx.fillStyle = "#adb5bd"; // Shadow
+                    ctx.fillRect(drawX + 4, drawY + 20, TILE_SIZE - 8, 8);
+                    // Eyes
+                    ctx.fillStyle = "#00ffff"; // Glowing blue
+                    ctx.fillRect(drawX + 10, drawY + 10, 4, 4);
+                    ctx.fillRect(drawX + 18, drawY + 10, 4, 4);
+
+                    // HP
+                    const hpPct = enemy.hp / enemy.max_hp;
+                    ctx.fillStyle = '#500'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE, 4);
+                    ctx.fillStyle = '#f00'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+                    return;
+                }
+                else if (name.includes("wraith")) {
+                    // GHOSTLY
+                    ctx.globalAlpha = 0.6;
+                    ctx.fillStyle = "#e0ffff";
+                    ctx.beginPath();
+                    ctx.arc(drawX + 16, drawY + 12, 10, 0, Math.PI * 2); // Head
+                    ctx.fill();
+                    ctx.fillRect(drawX + 10, drawY + 12, 12, 18); // Body
+                    ctx.globalAlpha = 1.0;
+
+                    // Eyes
+                    ctx.fillStyle = "#000";
+                    ctx.fillRect(drawX + 12, drawY + 10, 2, 2);
+                    ctx.fillRect(drawX + 18, drawY + 10, 2, 2);
+
+                    const hpPct = enemy.hp / enemy.max_hp;
+                    ctx.fillStyle = '#500'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE, 4);
+                    ctx.fillStyle = '#f00'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+                    return;
+                }
+                else if (name.includes("cryomancer")) {
+                    // BLUE MAGE
+                    ctx.fillStyle = "#1e90ff"; // DodgerBlue Robe
+                    ctx.beginPath();
+                    ctx.moveTo(drawX + 16, drawY + 4);
+                    ctx.lineTo(drawX + 4, drawY + 28);
+                    ctx.lineTo(drawX + 28, drawY + 28);
+                    ctx.fill();
+
+                    // Staff
+                    ctx.strokeStyle = "#deb887";
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(drawX + 24, drawY + 5);
+                    ctx.lineTo(drawX + 24, drawY + 28);
+                    ctx.stroke();
+
+                    // Orb
+                    ctx.fillStyle = "#00ffff";
+                    ctx.beginPath();
+                    ctx.arc(drawX + 24, drawY + 5, 3, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    const hpPct = enemy.hp / enemy.max_hp;
+                    ctx.fillStyle = '#500'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE, 4);
+                    ctx.fillStyle = '#f00'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+                    return;
+                }
+                else if (name.includes("frost giant")) {
+                    // HUGE BOSS
+                    // Draw bigger if possible? Canvas clipping might crop it unless we change draw order.
+                    // Just draw distinct
+                    ctx.fillStyle = "#4682b4"; // SteelBlue
+                    ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+
+                    ctx.fillStyle = "#fff"; // Helmet/Hair
+                    ctx.fillRect(drawX + 5, drawY, TILE_SIZE - 10, 10);
+
+                    // Big Axe
+                    ctx.fillStyle = "#777";
+                    ctx.fillRect(drawX + 25, drawY + 5, 6, 20);
+
+                    const hpPct = enemy.hp / enemy.max_hp;
+                    ctx.fillStyle = '#500'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE, 4);
+                    ctx.fillStyle = '#f00'; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+                    return;
                 }
                 else if (name.includes("cinder")) assetKey = "cinder_hound";
                 else if (name.includes("sentinel")) assetKey = "obsidian_sentinel";
@@ -1048,4 +1160,4 @@ window.interact = interact; // Defined inside
 window.toggleMap = toggleMap;
 try { window.resetGame = resetGame; } catch (e) { }
 
-            }); // End Wrapper
+// End of Script

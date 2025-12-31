@@ -39,15 +39,16 @@ The game now features the Town of Oakhaven (Zone 1).
 *   `python tools/update_game.py`: Utility to fix NPC positions.
 *   `/gallery`: Browser tool to assign sprites to game objects.
 
-## 🔄 Recent Refactoring (v48+)
-*   **Modular Frontend**:
-    *   Split `ui.js` into `ui_combat.js` and `ui_inventory.js`.
-    *   **Refactored Graphics**: Split monolithic `graphics.js` into `assets.js` (Loading), `input.js` (Mouse/Zoom), and `renderer.js` (Pure Drawing).
-    *   Removed `game_v3.js` legacy code.
-*   **Modular Backend**:
-    *   Extracted Movement logic to `movement.py`.
-    *   Centralized Configuration in `gamedata.py`.
-    *   **Performance**: Added Composite Indexes and optimized Database Queries (N+1 fixes).
-    *   **Stability**: Enforced strict session management to resolve `DetachedInstanceError` in multi-threaded contexts (Combat, Movement, Quest Log).
-    *   **Combat AI**: Improved enemy pathfinding to handle flanking and obstacles smarter.
-    *   **Dead Code Cleanup**: Removed legacy `_dead_*` methods from DM.
+## 🔄 Recent Updates (v50+)
+*   **Visual Overhaul**:
+    *   **Renderer V3**: New optimized rendering pipeline (`renderer_v3.js`) supporting smoother animations and sprite layers.
+    *   **UI V2**: Completely rewritten UI system (`ui_v2.js`) for better popup management and interactions.
+    *   **Dungeon Entrance**: Added visual **Trapdoor** to enter the dungeon from Oakhaven.
+*   **Gameplay Polish**:
+    *   **Combat**: Added Auto-Close on victory, XP popups, and improved responsiveness.
+    *   **Loot**: Enemies drop lootable bone piles with visual feedback.
+    *   **Reset**: Fixed Reset Button functionality (Database locking issue resolved).
+*   **Code Cleanup**:
+    *   Archived monolithic `renderer.js` and `ui.js`.
+    *   Cleaned up `combat.py` duplicates.
+    *   Standardized versioning for asset cache invalidation.

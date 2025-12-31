@@ -262,6 +262,10 @@ class DungeonMaster:
 
         elif z == 2:
             return "North Forest"
+        
+        elif z == 4:
+            if x==0 and y==0: return "Frozen Entrance"
+            return "Glacial Cavern"
 
         return None
 

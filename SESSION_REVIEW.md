@@ -1,49 +1,30 @@
-# Session Review: Dungeon Crawler (Dec 27, 2025)
+# Session Review: Dungeon Crawler (Dec 31, 2025)
 
-## 1. Achievements Today
-We made significant progress in stabilizing and enhancing the "core loop" of the game:
-*   **Combat System**: Fixed critical bugs where combat wouldn't start or buttons wouldn't appear. We added a "deadlock breaker" so the game doesn't get stuck on "Enemy Turn".
-*   **Visuals**: Replaced generic placeholders (Red Squares) with custom Pixel Art for the **Forest Bear** and **Fire Guardian**.
-*   **UI Responsiveness**: Increased the update rate (polling) to 200ms and added visual "Processing..." spinners. The game feels much snappier now.
-*   **Bug Fixes**: Solved the "Stacking Monsters" issue where enemies spawned on top of each other, and fixed the "Combat Window Won't Close" bug.
-*   **Visual Clarity**: Added "Void Stars" and "Pink Flowers" to make the map look less like a debug grid and more like a world.
+## 1. Major Clean-Up & Optimization
+We conducted a comprehensive file review and confirmed adherence to the "Short & Organized" master plan.
 
-## 2. Architectural Review
-You asked: *"If we were to start over now, would we still use the same structure?"*
+*   **Dead Code Elimination**: We archived **6 obsolete JavaScript files** (`renderer_v2.js`, `game_final.js`, `ice_renderer.js`, etc.) into `static/js/_archive/`.
+    *   *Result*: The `static/js/` directory is now clean, containing only the active, working code.
+*   **Active Frontend Architecture**:
+    *   `renderer_v3.js` (~390 lines): Handles all Canvas rendering (Map, Sprites, Fog of War).
+    *   `ui_v2.js` (~520 lines): Handles all DOM UI (Combat Tabs, Inventory, Chat, Dragging).
+    *   `modules/assets.js`: Centralized Asset Dictionary.
+*   **Active Backend Architecture**:
+    *   `dm.py`: The central controller/facade.
+    *   `dungeon/`: Modular systems (`combat.py`, `movement.py`, `generator.py`, `quests.py`) are strictly separated and managed by `dm.py`.
 
-### The Current Stack
-*   **Backend**: Python (Flask) + SQLAlchemy (SQLite).
-*   **Frontend**: Vanilla JavaScript (ES6 Modules) + HTML5 Canvas.
-*   **Communication**: HTTP Polling (Client asks "What's new?" every 0.2s).
+## 2. Feature Restoration
+We successfully restored functionality lost during the V2->V3 Refactor:
+*   **Combat UI**: Restored the **3-Tab System** ("Move", "Action", "Bonus") and re-implemented Level 4 skill gating.
+*   **Fog of War**: Implemented visual dimming for "Memory" tiles vs "Direct Vision" tiles in `renderer_v3.js`.
+*   **Adventure Log**: Implemented **Local Storage Persistence**, so the log history is saved across refreshes.
+*   **Inventory Sync**: Fixed the Interaction Panel to correctly mirror the Player's Inventory.
 
-### Verdict: **YES, but with caveats.**
+## 3. Verdict
+The project is back on a **Clean, Modular Track**.
+*   **Frontend**: Is no longer a confusing mix of 5 different versions. V3 is the standard.
+*   **Backend**: Remains robust and modular.
 
-**Why stick with it?**
-1.  **Iterative Speed**: Python is incredibly fast for tweaking game logic (AI, damage formulas) on the fly. You don't need to recompile C# or C++ code.
-2.  **Simplicity**: The current "Stateless REST API" model is very easy to debug. If something breaks, you can just look at the `/api/state` JSON and see exactly what's wrong.
-3.  **Low Overhead**: We don't need a heavy game engine (Unity/Godot) for a 2D grid dungeon crawler.
-
-**What we would change (Refactoring Targets):**
-
-1.  **Move from Polling to WebSockets (Socket.IO)**:
-    *   *Current*: The client spams the server 5 times a second. This is inefficient.
-    *   *Better*: The server *pushes* updates only when something changes. This would make movement and combat feel "instant" (0 latency).
-
-2.  **Entity Component System (ECS)**:
-    *   *Current*: We have `Monster` classes and `Player` classes with hardcoded stats.
-    *   *Better*: An ECS (standard in game dev) would allow us to just attach a "Flammable" tag to a Tree or a Player or a Door, and the logic would work for all of them automatically.
-
-3.  **Frontend Framework**:
-    *   *Current*: We are manually updating DOM elements (`document.getElementById...`). This gets messy as the UI grows.
-    *   *Better*: Using a lightweight library like **Vue.js** or **React** would make the UI code 50% smaller and less prone to bugs.
-
-### Summary
-The current structure is **solid for a prototype/alpha**. It is not "technical debt" yet; it is a "foundation". We are successfully building a complex RPG on it. I recommend we continue with this structure until we hit a performance wall (unlikely with a turn-based grid game), but keep **WebSockets** in mind as the next major technical upgrade.
-
-## 3. Next Steps
-When we pick this up again, our priorities should be:
-1.  **Inventory UI**: It's functional but clunky. Drag-and-drop needs polish.
-2.  **Quest System**: We have the backend for it, but the UI is minimal.
-3.  **Sound**: We have the audio system, we just need to hook up more SFX.
-
-Great work today! The game is actually *playable* and starting to look good.
+## 4. Next Steps
+*   **Gameplay Polish**: Now that the UI is stable, we can focus on game balance and content (Quests, new Enemies).
+*   **Quest UI**: The Quest Log is working, but could use more details (steps, icons).
