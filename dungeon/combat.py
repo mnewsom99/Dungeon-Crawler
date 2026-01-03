@@ -191,6 +191,15 @@ class CombatSystem:
         
         # --- FLEXIBLE TURN LOGIC ---
         if action_type == "end_turn":
+            # Decrement Rage
+            props = dict(player.properties or {})
+            if props.get("rage_turns", 0) > 0:
+                props["rage_turns"] -= 1
+                if props["rage_turns"] == 0:
+                    events.append({"type": "text", "message": "<b>Your rage subsides.</b>"})
+                player.properties = props
+                flag_modified(player, "properties")
+
             events.append({"type": "text", "message": "Ending Turn..."})
             events.extend(self._cycle_turn(encounter))
             return {"events": events}
@@ -263,17 +272,19 @@ class CombatSystem:
              str_mod = self._get_modifier(p_stats.get("str", 10))
              prof_bonus = 2 # Assuming player proficiency bonus is 2
              
-             # Roll to Hit
-             hit_roll = roll_dice(20) + str_mod + prof_bonus
+             # Rage Check
+             props = player.properties or {}
+             range_bonus = 2 if props.get("rage_turns", 0) > 0 else 0
+
+             # Roll to Hit: Heavy Strike has -2 penalty, but Rage adds +2
+             hit_roll = roll_dice(20) + str_mod + prof_bonus - 2 + range_bonus
              if hit_roll >= target.armor_class:
-                 dmg = roll_dice(10) + str_mod # D10 + STR
-                 # Extra Heavy Damage (+STR again basically, or 1.5x)
-                 dmg += str_mod # Additional damage from heavy strike
+                 dmg = roll_dice(8) + roll_dice(8) + int(str_mod * 1.5) # 2d8 + 1.5x STR
                  
-                 # Rage Bonus
+                 # Rage Bonus (20% Scale)
                  props = player.properties or {}
                  if props.get("rage_turns", 0) > 0:
-                     dmg += 2
+                     dmg = int(dmg * 1.2)
                      
                  target.hp_current -= dmg
                  events.append({"type": "anim", "actor": "player", "anim": "attack"})
@@ -314,16 +325,20 @@ class CombatSystem:
              # Find all adjacent (within 1.5 units, effectively adjacent squares)
              enemies = [m for m in encounter.monsters if m.is_alive and self._dist(player, m) <= 1.5]
              
+             # Rage Check
+             props = player.properties or {}
+             range_bonus = 2 if props.get("rage_turns", 0) > 0 else 0
+
              if not enemies:
                  events.append({"type": "text", "message": "You hit nothing but air."})
              else:
                  for target in enemies:
-                     hit = roll_dice(20) + str_mod + prof_bonus
+                     # Cleave: High Accuracy (+2) + Rage (+2), Low Damage (d6)
+                     hit = roll_dice(20) + str_mod + prof_bonus + 2 + range_bonus
                      if hit >= target.armor_class:
-                         dmg = roll_dice(8) + str_mod
-                         # Rage Bonus
-                         props = player.properties or {}
-                         if props.get("rage_turns", 0) > 0: dmg += 2
+                         dmg = roll_dice(6) + str_mod
+                         # Rage Bonus Damage (20%)
+                         if range_bonus > 0: dmg = int(dmg * 1.2)
                          
                          target.hp_current -= dmg
                          events.append({"type": "text", "message": f"Hit {target.name} for {dmg}."})
@@ -385,22 +400,22 @@ class CombatSystem:
              else:
                  events.append({"type": "text", "message": f"You try to kick {target.name}, but they hold firm."})
                  
-             # self.dm.save() # Removed, will commit at end of player_action
+             self.session.commit()
              return {"events": events}
 
         elif action_type == 'rage':
              if encounter.bonus_actions_left <= 0: return {"events": [{"type": "text", "message": "No bonus actions left."}]}
              encounter.bonus_actions_left -= 1
              
-             events.append({"type": "text", "message": "You ROAR with primal fury! (+2 DMG)"})
+             events.append({"type": "text", "message": "You ROAR with primal fury! (+20% DMG, +2 HIT, Vuln +20%)"})
              events.append({"type": "anim", "actor": "player", "anim": "buff"}) # visual?
              
              props = dict(player.properties or {})
-             props["rage_turns"] = 2
+             props["rage_turns"] = 3
              player.properties = props
              flag_modified(player, "properties")
              
-             # self.dm.save() # Removed, will commit at end of player_action
+             self.session.commit()
              return {"events": events}
 
         elif action_type == "attack":
@@ -591,8 +606,14 @@ class CombatSystem:
         prof_bonus = 2
         
         # Attack Roll
+        # Attack Roll: Regular Attack gets +1 Accuracy
+        # Rage Bonus: +2 Hit
+        props = player.properties or {}
+        is_raging = props.get("rage_turns", 0) > 0
+        rage_hit_mod = 2 if is_raging else 0
+        
         roll = roll_dice(20)
-        hit_mod = str_mod + prof_bonus
+        hit_mod = str_mod + prof_bonus + 1 + rage_hit_mod
         total_hit = roll + hit_mod
         
         events.append({"type": "popup", "title": "ATTACK", "content": f"You attack {enemy.name}!", "duration": 1000})
@@ -600,6 +621,7 @@ class CombatSystem:
         
         if total_hit >= enemy.armor_class:
             dmg = roll_dice(8) + str_mod
+            if is_raging: dmg = int(dmg * 1.2) # Rage 20% Bonus
             
             # OBSIDIAN SENTINEL: High Defense
             if enemy.name == "Obsidian Sentinel":
@@ -849,6 +871,13 @@ class CombatSystem:
                 
                 if total_hit >= player.armor_class:
                     dmg = roll_dice(6) + str_mod
+                    
+                    # Rage Vulnerability
+                    props = player.properties or {}
+                    if props.get("rage_turns", 0) > 0:
+                         dmg = int(dmg * 1.2)
+                         events.append({"type": "text", "message": f"<span style='color:orange'>(Rage Vulnerability +20%)</span>"})
+
                     player.hp_current = max(0, player.hp_current - dmg)
                     events.append({"type": "text", "message": f"{enemy.name} hits you for <span style='color:red'>{dmg}</span> dmg!"})
                     events.append({"type": "popup", "title": "HIT", "content": f"Took {dmg} Damage!", "color": "#d00", "duration": 1200})
@@ -922,28 +951,40 @@ class CombatSystem:
         """Generates loot for a fresh corpse."""
         from .items import ITEM_TEMPLATES
         loot = []
-        # Gold
-        gold = roll_dice(10) + 5
+        
+        # Gold Scales with Level
+        level = enemy.level or 1
+        gold_base = roll_dice(10) + 5
+        gold = gold_base + (level * 2) # Scale gold
+        
         loot.append({"type": "gold", "qty": gold, "name": f"{gold} Gold Coins", "icon": "💰", "id": "gold"})
         
-        # Item (Boosted Rates)
-        roll = roll_dice(20)
+        # Item Drops
+        # Base Roll d20 + Level/3
+        roll = roll_dice(20) + (level // 3)
         code = None
-        if roll > 10: code = "chainmail" # Was 15
-        elif roll > 6: code = "healing_potion" # Was 10
-        elif roll > 2: code = "dagger" # Was 5
         
-        # Fire Dungeon Loot (Z=3)
-        if enemy.z == 3:
+        if roll >= 20: code = "chainmail" # Rare
+        elif roll >= 15: code = "healing_potion" # Uncommon
+        elif roll >= 10: code = "dagger" # Common
+        elif roll >= 5: code = "torch" # Junk/Tool? We don't have torch valid item maybe? Let's check.
+        
+        # If no code or invalid, maybe fallback
+        if roll >= 5 and not code: code = "healing_potion" # Fallback benefit
+        
+        # Specific Dungeon Loot (Priority)
+        if enemy.z == 3: # Fire Dungeon
              f_roll = roll_dice(100)
-             if f_roll > 95: code = "phoenix_shield" # Very Rare
-             elif f_roll > 80: code = "cryo_flask" # Uncommon
-             elif f_roll > 60: code = "item_core" # Material
+             if f_roll > 92: code = "phoenix_shield" 
+             elif f_roll > 75: code = "item_core" # Material
+             elif f_roll > 60: code = "cryo_flask" 
         
-        # Chance for second item
-        if roll_dice(20) > 15:
-             loot.append({"type": "item", "code": "healing_potion", "name": "Healing Potion", "icon": "🧪", "id": f"loot_{random.randint(1000,9999)}"})
+        elif enemy.z == 4: # Ice Dungeon
+             i_roll = roll_dice(100)
+             if i_roll > 92: code = "frost_brand" # Hypothetical
+             elif i_roll > 75: code = "item_frost_shard"
         
+        # Add Item
         if code and code in ITEM_TEMPLATES:
             t = ITEM_TEMPLATES[code]
             loot.append({
@@ -954,6 +995,10 @@ class CombatSystem:
                 "id": f"loot_{random.randint(1000,9999)}"
             })
         
+        # Bonus: Guaranteed 'Junk' or small item for high levels if nothing else
+        if not code and level > 5 and roll_dice(10) > 5:
+             loot.append({"type": "item", "code": "healing_potion", "name": "Healing Potion", "icon": "🧪", "id": f"loot_{random.randint(1000,9999)}"})
+
         enemy.loot = loot
 
 

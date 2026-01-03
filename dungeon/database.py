@@ -157,6 +157,7 @@ class NPC(Base):
     name = Column(String, unique=True)
     persona_prompt = Column(String) # The system prompt for AI
     location = Column(String) # "Tavern", "Smithy"
+    asset = Column(String, default="player.png")
     
     # Coordinates for Dungeon Encounters
     x = Column(Integer, nullable=True)

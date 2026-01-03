@@ -2,6 +2,7 @@
 console.log("UI CORE V2 LOADING...");
 
 // --- 1. DRAGGABLE PANELS ---
+// --- 1. DRAGGABLE PANELS ---
 function initDraggables() {
     const panels = document.querySelectorAll('.draggable-panel');
     let activePanel = null;
@@ -10,6 +11,19 @@ function initDraggables() {
     let maxZ = 100;
 
     panels.forEach(panel => {
+        // PERSISETNCE: Restore Position
+        if (panel.id) {
+            const saved = localStorage.getItem(`pos_${panel.id}`);
+            if (saved) {
+                try {
+                    const pos = JSON.parse(saved);
+                    panel.style.left = pos.left;
+                    panel.style.top = pos.top;
+                    // Ensure it's not off-screen? (Optional safety)
+                } catch (e) { console.error("Bad saved pos", e); }
+            }
+        }
+
         const handle = panel.querySelector('.drag-handle');
         if (!handle) return;
         handle.addEventListener('mousedown', (e) => {
@@ -32,10 +46,19 @@ function initDraggables() {
         activePanel.style.top = y + 'px';
         activePanel.style.right = 'auto';
         activePanel.style.bottom = 'auto';
-        activePanel.style.transform = 'none';
+        activePanel.style.transform = 'none'; // reset centered transforms if any
     }
 
     function onMouseUp() {
+        if (activePanel && activePanel.id) {
+            // SAVE POSITION
+            const pos = {
+                left: activePanel.style.left,
+                top: activePanel.style.top
+            };
+            localStorage.setItem(`pos_${activePanel.id}`, JSON.stringify(pos));
+        }
+
         activePanel = null;
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
@@ -124,6 +147,18 @@ window.sendChat = async function () {
     } catch (e) { console.error(e); }
 };
 
+async function sendChatRaw(msg) {
+    try {
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ npc_index: activeNpcId, message: msg.toString() })
+        });
+        const data = await res.json();
+        renderChat(data);
+    } catch (e) { console.error(e); }
+}
+
 function renderChat(data) {
     const hist = document.getElementById('chat-history');
     if (hist.querySelector('.npc')?.textContent === "Loading...") hist.innerHTML = '';
@@ -142,12 +177,31 @@ function renderChat(data) {
         div.innerHTML = mainText.replace(/\n/g, '<br>');
         hist.appendChild(div);
 
+        const optContainer = document.createElement('div');
+        optContainer.style.marginTop = "10px";
+        optContainer.style.display = "flex";
+        optContainer.style.flexDirection = "column";
+        optContainer.style.gap = "5px";
+
+        // Special: Trade Button
+        if (data.can_trade) {
+            const tradeBtn = document.createElement('button');
+            tradeBtn.textContent = "💰 TRADE / SHOP";
+            tradeBtn.className = "chat-option-btn";
+            tradeBtn.style.padding = "8px";
+            tradeBtn.style.textAlign = "center";
+            tradeBtn.style.background = "#2a4200";
+            tradeBtn.style.border = "1px solid #480";
+            tradeBtn.style.color = "#df8";
+            tradeBtn.style.fontWeight = "bold";
+            tradeBtn.style.cursor = "pointer";
+            tradeBtn.onclick = () => {
+                window.openShop();
+            };
+            optContainer.appendChild(tradeBtn);
+        }
+
         if (options.length > 0) {
-            const optContainer = document.createElement('div');
-            optContainer.style.marginTop = "10px";
-            optContainer.style.display = "flex";
-            optContainer.style.flexDirection = "column";
-            optContainer.style.gap = "5px";
             options.forEach(opt => {
                 const btn = document.createElement('button');
                 btn.textContent = opt.label;
@@ -165,25 +219,183 @@ function renderChat(data) {
                 optContainer.appendChild(btn);
             });
             hist.appendChild(optContainer);
+        } else if (data.can_trade) {
+            // If no options but can trade, render container just for trade btn
+            hist.appendChild(optContainer);
         }
+
         const nameEl = document.getElementById('chat-overlaid-name');
         if (nameEl && data.npc_name) nameEl.textContent = data.npc_name;
         hist.scrollTop = hist.scrollHeight;
     }
 }
 
-async function sendChatRaw(msg) {
+// --- SHOP SYSTEM ---
+window.openShop = async function () {
     try {
-        const res = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ npc_index: activeNpcId, message: msg.toString() })
-        });
+        const res = await fetch('/api/shop/list');
         const data = await res.json();
-        renderChat(data);
+        renderShop(data);
+    } catch (e) { console.error(e); }
+};
+
+function renderShop(data) {
+    let el = document.getElementById('shop-modal');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'shop-modal';
+        el.style.position = 'absolute';
+        el.style.top = '50%';
+        el.style.left = '50%';
+        el.style.transform = 'translate(-50%, -50%)';
+        el.style.background = '#1a1a1a';
+        el.style.border = '2px solid #ffd700';
+        el.style.padding = '20px';
+        el.style.zIndex = '10001';
+        el.style.width = '600px';
+        el.style.height = '500px';
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.boxShadow = '0 0 50px rgba(0,0,0,0.95)';
+        document.body.appendChild(el);
+    }
+    el.style.display = 'flex';
+
+    // Header
+    let html = `
+    <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; padding-bottom:10px; margin-bottom:10px;">
+        <h2 style="margin:0; color:#ffd700;">Town Market</h2>
+        <button onclick="document.getElementById('shop-modal').style.display='none'" style="background:#422; border:1px solid #633; color:#fff; cursor:pointer; padding:5px 10px;">Close</button>
+    </div>
+    
+    <div style="display:flex; flex:1; overflow:hidden; gap:20px;">
+        <!-- BUY TAB -->
+        <div style="flex:1; display:flex; flex-direction:column; border-right:1px solid #333; padding-right:10px;">
+            <h3 style="color:#ada; margin-top:0;">Buy Items</h3>
+            <div style="overflow-y:auto; flex:1;" id="shop-buy-list">
+                 <!-- Generated JS -->
+            </div>
+        </div>
+        
+        <!-- SELL TAB -->
+        <div style="flex:1; display:flex; flex-direction:column;">
+            <h3 style="color:#daa; margin-top:0;">Sell Items</h3>
+            <div style="overflow-y:auto; flex:1;" id="shop-sell-list">
+                 <!-- Generated JS -->
+            </div>
+        </div>
+    </div>
+    `;
+    el.innerHTML = html;
+
+    // Fill Lists
+    const buyList = document.getElementById('shop-buy-list');
+    const shops = data.shops || {}; // { "blacksmith": [id, id], ... }
+    const items = data.items || {}; // { id: {name, price...} }
+
+    // Flatten all shop inventories for now (or filter by NPC type logic if we had it passed in)
+    // For now, show ALL available shop items in game
+    let allShopItems = [];
+    for (let shopName in shops) {
+        shops[shopName].forEach(tid => {
+            if (items[tid]) allShopItems.push(items[tid]);
+        });
+    }
+
+    // Render Buy
+    if (allShopItems.length === 0) {
+        buyList.innerHTML = "<div style='color:#666'>Nothing for sale.</div>";
+    } else {
+        allShopItems.forEach(item => {
+            const div = document.createElement('div');
+            div.style.padding = "5px"; div.style.borderBottom = "1px solid #333"; div.style.display = "flex"; div.style.justifyContent = "space-between";
+            div.innerHTML = `
+                <div>
+                   <div style="color:#eee; font-weight:bold;">${item.name}</div>
+                   <div style="font-size:0.8em; color:#888;">${item.type} | ${item.slot || '-'}</div>
+                </div>
+                <button onclick="buyItem('${item.id}')" style="background:#242; color:#afa; border:1px solid #363; cursor:pointer; padding:5px;">Buy ${item.value}g</button>
+             `;
+            buyList.appendChild(div);
+        });
+    }
+
+    // Render Sell (Need Player Inventory - fetch state?)
+    // Uses global player state if available or re-fetch?
+    // We can assume window.playerInventory is not easily avail, so let's use a quick fetch or passed data?
+    // We'll rely on updateDashboard having run recently, but better to just show "Check Inventory".
+    // Or we fetch state right now
+    refreshSellList();
+}
+
+async function refreshSellList() {
+    try {
+        const res = await fetch('/api/state');
+        const data = await res.json();
+        const inv = data.player ? data.player.inventory : [];
+        const sellList = document.getElementById('shop-sell-list');
+        if (!sellList) return;
+
+        sellList.innerHTML = '';
+        if (inv.length === 0) {
+            sellList.innerHTML = "<div style='color:#666'>Your bag is empty.</div>";
+            return;
+        }
+
+        inv.forEach(item => {
+            // item can be obj or list, ui_v2 handles mixed. Backend usually returns Obj now?
+            let name = item.name || item[0];
+            let id = item.id;
+            let val = item.value || 0; // Backend needs to send value
+            if (val === 0) val = 5; // Fallback minimal value
+
+            // Don't sell equipped?
+            if (item.is_equipped) return;
+
+            const div = document.createElement('div');
+            div.style.padding = "5px"; div.style.borderBottom = "1px solid #333"; div.style.display = "flex"; div.style.justifyContent = "space-between";
+            div.innerHTML = `
+                <div>
+                   <div style="color:#eee;">${name}</div>
+                </div>
+                <button onclick="sellItem('${id}')" style="background:#422; color:#faa; border:1px solid #633; cursor:pointer; padding:5px;">Sell ${val}g</button>
+             `;
+            sellList.appendChild(div);
+        });
+
     } catch (e) { console.error(e); }
 }
 
+window.buyItem = async function (itemId) {
+    try {
+        const res = await fetch('/api/shop/buy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        const data = await res.json();
+        if (data.message) window.showPopup("SHOP", data.message, data.message.includes("Bought") ? "#0f0" : "#f00");
+        if (data.state) window.updateDashboard(data.state);
+        // Refresh sell list (gold changed)
+        // Refresh buy list? (maybe limited stock later)
+    } catch (e) { console.error(e); }
+};
+
+window.sellItem = async function (itemId) {
+    try {
+        const res = await fetch('/api/shop/sell', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        const data = await res.json();
+        if (data.message) window.showPopup("SHOP", data.message, "#ffd700");
+        if (data.state) window.updateDashboard(data.state);
+        refreshSellList(); // Remove item from list
+    } catch (e) { console.error(e); }
+};
+
+// --- 4. LOOT & INTERACTION ---
 // --- 4. LOOT & INTERACTION ---
 window.lootItem = async function (type, id) {
     if (type === 'corpse') {
@@ -196,12 +408,22 @@ window.lootItem = async function (type, id) {
             const data = await res.json();
 
             if (data.narrative) {
-                window.showPopup("LOOTED", data.narrative, "#ffd700", 2000);
-                // Also log
-                if (window.logMessage) window.logMessage(data.narrative);
+                // Check if it's a Loot Window Object or just text
+                if (typeof data.narrative === 'object' && data.narrative.type === 'loot_window') {
+                    window.showLootPopup(data.narrative);
+                } else {
+                    // Standard Text Response (e.g., "The corpse is empty.")
+                    // Make sure to close previous loot window if it was open
+                    const lootWin = document.getElementById('loot-popup');
+                    if (lootWin) lootWin.style.display = 'none';
+
+                    window.showPopup("LOOTED", data.narrative, "#ffd700", 2000);
+                    if (window.logMessage) window.logMessage(data.narrative);
+                }
             }
+            // State update is handled by takeLoot usually, but if we emptied custom stash?
             if (data.state && window.updateDashboard) window.updateDashboard(data.state);
-            else if (window.fetchState) window.fetchState(); // Fallback refresh
+            else if (window.fetchState) window.fetchState();
 
         } catch (e) { console.error(e); }
     }
@@ -215,7 +437,15 @@ window.interactSecret = async function (id, type) {
             body: JSON.stringify({ action: 'inspect', target_type: type || 'secret', target_id: id })
         });
         const data = await res.json();
-        if (data.narrative && window.logMessage) window.logMessage(data.narrative);
+
+        if (data.narrative) {
+            if (typeof data.narrative === 'object' && data.narrative.type === 'loot_window') {
+                window.showLootPopup(data.narrative);
+            } else {
+                if (window.logMessage) window.logMessage(data.narrative);
+            }
+        }
+
         if (window.fetchState) window.fetchState();
     } catch (e) { console.error(e); }
 };
@@ -339,8 +569,13 @@ window.showLootPopup = function (data) {
         html += `<div style="color:#888; font-style:italic;">Empty.</div>`;
     } else {
         data.loot.forEach(item => {
+            // FIX: Resolve Icon HTML instead of raw filename
+            const iconHtml = window.resolveIconHtml(item.icon || '📦');
             html += `<div style="display:flex; justify-content:space-between; align-items:center; background:#333; padding:8px; border-radius:4px;">
-                        <span style="color:#eee;">${item.icon || '📦'} <b>${item.name}</b> <span style="font-size:0.8em; color:#aaa;">(x${item.qty || 1})</span></span>
+                        <span style="color:#eee; display:flex; align-items:center; gap:8px;">
+                            <div style="width:24px; height:24px; display:inline-block;">${iconHtml}</div>
+                            <b>${item.name}</b> <span style="font-size:0.8em; color:#aaa;">(x${item.qty || 1})</span>
+                        </span>
                         <button onclick="takeLoot('${data.corpse_id}', '${item.id}')" style="background:#262; color:#cfc; border:none; padding:5px 10px; cursor:pointer;">Take</button>
                      </div>`;
         });
@@ -360,14 +595,17 @@ window.takeLoot = async function (corpseId, lootId) {
         });
         const result = await res.json();
 
-        // Close modal and show toaster
-        document.getElementById('loot-popup').style.display = 'none';
-
-        // Show small toast instead of blocking popup
-        if (window.logMessage) window.logMessage(result.message); // logMessage is better than popup for small stuff
+        // Show small toast
+        if (window.logMessage) window.logMessage(result.message);
         else window.showPopup("TAKEN", result.message, "#0f0", 800);
 
-        // Refresh
+        // DO NOT CLOSE POPUP - REFRESH IT INSTEAD
+        // Re-query the corpse. If it's empty now, the refresh logic will handle it (likely calling close or showing empty msg).
+        if (corpseId) {
+            window.lootItem('corpse', corpseId);
+        }
+
+        // Global State Refresh
         if (window.fetchState) window.fetchState();
 
     } catch (e) { console.error(e); }
@@ -402,15 +640,75 @@ window.updateDashboard = function (data) {
         const hp = data.player.hp !== undefined ? data.player.hp : s.hp;
         const max = data.player.max_hp !== undefined ? data.player.max_hp : s.max_hp;
 
-        setText('stat-lvl', data.player.level || 1);
-        setText('stat-xp', data.player.xp || 0);
-        setText('stat-hp', `${hp}/${max}`);
-        setText('stat-str', s.str);
-        setText('stat-dex', s.dex);
-        setText('stat-con', s.con);
-        setText('stat-int', s.int);
-        setText('stat-wis', s.wis);
-        setText('stat-cha', s.cha);
+        // Dynamic Stat Table with Tooltips & Upgrades
+        const sb = document.getElementById('stat-body');
+        const points = s.unspent_points || 0;
+
+        // Display Points if available
+        if (points > 0) {
+            setText('stat-lvl', `${data.player.level} (+${points} Avail)`);
+            const lvlEl = document.getElementById('stat-lvl');
+            if (lvlEl) lvlEl.style.color = '#0ff';
+        }
+
+        const statDefs = [
+            { key: 'str', label: 'STR', desc: 'Physical power', tooltip: 'Melee Hit/Damage & Physical Resistance (Push/Prone).' },
+            { key: 'dex', label: 'DEX', desc: 'Agility', tooltip: 'Initiative, Armor Class (AC), and Ranged/Finesse Attacks.' },
+            { key: 'con', label: 'CON', desc: 'Endurance', tooltip: 'Determines Max HP Gain per Level & Concentration Checks.' },
+            { key: 'int', label: 'INT', desc: 'Reasoning', tooltip: 'Wizard Spell Power (DC) & Investigation/Arcana.' },
+            { key: 'wis', label: 'WIS', desc: 'Intuition', tooltip: 'Cleric/Druid Magic, Perception & Resisting Mind Effects.' },
+            { key: 'cha', label: 'CHA', desc: 'Presence', tooltip: 'Paladin/Sorcerer Magic & Social Influence.' }
+        ];
+
+        // Rebuild Table Rows (skip first 3 which are static in HTML: LVL, XP, HP)
+        // Wait, the HTML has LVL, XP, HP as rows 1-3. We should target specific rows or just rebuild the bottom half?
+        // To obtain "hover ability", we need to ensure the row/cell has the title.
+        // The original HTML had rows for stats. We can clear and rebuild, or update.
+        // Let's rebuilding the stats part (rows 4+) to be safe and clean.
+        // But 'stat-body' contains ALL rows.
+        // We will keep LVL/XP/HP as they are updated by setText above, and we only need to rebuild the attribute rows?
+        // Actually, it's cleaner to generate the whole table or just the attributes. 
+        // Let's stick to updating the attributes which are usually rows 3-8 (0-indexed).
+
+        // Strategy: Iterate and find or create rows for attributes. 
+        // Simpler: Let's assume the table structure in HTML. 
+        // Actually, replacing innerHTML of a specific container is easiest.
+        // The user provided HTML has 'stat-body'. 
+        // We will regenerate the LVL, XP, HP rows + the Attribute rows to ensure order.
+
+        let html = `
+            <tr title="Current Hero Level. Gains stats on level up.">
+                <td>LVL</td>
+                <td style="color:${points > 0 ? '#0ff' : '#ffd700'}; font-weight:bold;">${data.player.level || 1}${points > 0 ? ` <span style="font-size:0.8em">(${points} pts)</span>` : ''}</td>
+                <td>Hero Level</td>
+            </tr>
+            <tr title="Experience Points. Reach threshold to level up.">
+                <td>XP</td>
+                <td>${data.player.xp || 0}</td>
+                <td>Experience</td>
+            </tr>
+            <tr title="Health Points. If 0, you die.">
+                <td>HP</td>
+                <td style="color:#0f0; font-weight:bold;">${hp}/${max}</td>
+                <td>Health Points</td>
+            </tr>
+        `;
+
+        statDefs.forEach(def => {
+            const val = s[def.key] || 10;
+            html += `
+            <tr title="${def.tooltip}">
+                <td style="cursor:help; text-decoration:underline dotted; color:#ddd;">${def.label}</td>
+                <td>
+                    ${val}
+                    ${points > 0 ? `<button onclick="upgradeStat('${def.key}')" style="background:#242; border:1px solid #484; color:#afa; cursor:pointer; font-size:10px; padding:0 3px; margin-left:4px;" title="Spend point to increase ${def.label}">+</button>` : ''}
+                </td>
+                <td style="font-size:0.8em; color:#aaa;">${def.desc}</td>
+            </tr>
+            `;
+        });
+
+        if (sb) sb.innerHTML = html;
     }
 
     // Update Sub-Modules
@@ -418,6 +716,110 @@ window.updateDashboard = function (data) {
     updateNearby(data);
     updateCombat(data);
     updateQuests(data);
+};
+
+window.upgradeStat = async function (stat) {
+    try {
+        const res = await fetch('/api/stats/upgrade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ stat: stat })
+        });
+        const data = await res.json();
+        if (data.message && window.logMessage) window.logMessage(data.message, 'loot');
+        if (data.state && window.updateDashboard) window.updateDashboard(data.state);
+    } catch (e) { console.error(e); }
+};
+
+// --- DRAG & DROP LOGIC ---
+window.handleItemDragStart = function (e, id, slot, type) {
+    if (!id) return;
+    e.dataTransfer.setData("item_id", id);
+    e.dataTransfer.setData("item_slot", slot || "");
+    e.dataTransfer.setData("item_type", type || "misc");
+    e.dataTransfer.effectAllowed = "move";
+    // Optional: Set Drag Image
+};
+
+window.allowDrop = function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move"; // Show copy/move cursor
+};
+
+window.handleItemDrop = function (e, targetSlot) {
+    e.preventDefault();
+    const id = e.dataTransfer.getData("item_id");
+    const itemSlot = e.dataTransfer.getData("item_slot");
+    const itemType = e.dataTransfer.getData("item_type");
+
+    // Validate Slot Compatibility
+    // If target is specific (e.g., 'head') and item slot doesn't match
+    if (targetSlot && itemSlot !== targetSlot) {
+        window.logMessage("That item doesn't fit there!");
+        window.showPopup("INVALID", "Wrong Slot", "#f88", 1000);
+        return;
+    }
+
+    // Execute Equip
+    window.useItem(id);
+};
+
+window.useItem = async function (id) {
+    console.log("Using Item:", id);
+    try {
+        // Backend 'use' endpoint usually handles both Consume and Equip based on type
+        // Wait, backend logic for 'equip' is `dm.equip_item`.
+        // backend `views.py` usually maps `/api/inventory/use` to `dm.use_item`.
+        // We might need a specific `equip` endpoint if `use` is only for consumables?
+        // Let's try calling `use` first. If it fails for equipment, we add `equip`.
+        // Actually, looking at previous context, `dm.use_item` checks "consumable".
+        // `dm.equip_item` is separate.
+        // We likely need to check item type or try both? 
+        // Or cleaner: Try Equip. If backend says "Not equipment", Try Use.
+
+        let res = await fetch('/api/inventory/equip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: id })
+        });
+        let data = await res.json();
+
+        if (data.message && (data.message.includes("Equipped") || data.message.includes("Swap"))) {
+            if (window.logMessage) window.logMessage(data.message);
+            if (data.state) window.updateDashboard(data.state);
+            return;
+        }
+
+        // If Equip failed (or not equipment), try Use (Consumable)
+        res = await fetch('/api/inventory/use', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: id })
+        });
+        data = await res.json();
+
+        if (data.message) {
+            if (window.logMessage) window.logMessage(data.message);
+            else window.showPopup("ITEM", data.message, "#ffd700");
+        }
+        if (data.state && window.updateDashboard) window.updateDashboard(data.state);
+
+    } catch (e) { console.error(e); }
+};
+
+// Helper to determine if icon is an image path or emoji
+window.resolveIconHtml = function (iconStr) {
+    if (!iconStr) return "📦";
+    // Check if it looks like a file path (has extension or path separators)
+    if (iconStr.match(/\.(png|jpg|jpeg|gif|webp)$/i) || iconStr.includes('/')) {
+        let src = iconStr;
+        if (!src.startsWith('/') && !src.startsWith('http')) {
+            src = `/static/img/${src}`;
+        }
+        return `<img src="${src}" style="width:100%; height:100%; object-fit:contain; pixelated;">`;
+    }
+    // Fallback to Text/Emoji
+    return `<span style="font-size:1.5em; line-height:1;">${iconStr}</span>`;
 };
 
 function setText(id, val) {
@@ -430,41 +832,171 @@ function updateInventory(data) {
     if (!invList) return;
     const items = data.player && data.player.inventory ? data.player.inventory : [];
 
+    // Update Gold Display
+    const goldEl = document.getElementById('hero-gold-display');
+    if (goldEl) goldEl.textContent = data.player.gold || 0;
+
+    // 1. Reset Slots to Default Icons & Attach Drop Listeners
+    const defaultIcons = {
+        'head': '🧢', 'chest': '👕', 'legs': '👖', 'feet': '👢',
+        'main_hand': '⚔️', 'off_hand': '🛡️'
+    };
+
+    // Clear and Setup Slots
+    for (let slot in defaultIcons) {
+        const el = document.getElementById(`slot-${slot}`);
+        if (el) {
+            // Only reset if NOT holding a valid item (backend data drives this, so we clear first?)
+            // Actually, we re-render "equipped" items below, so clearing here is correct.
+            el.innerHTML = defaultIcons[slot]; // Use innerHTML to reset to emoji
+            el.style.color = "#666";
+            el.removeAttribute('data-item-id');
+            el.title = "Empty";
+            el.parentElement.style.borderColor = "#444";
+
+            // ATTACH DROP LISTENERS TO PARENT CONTAINER
+            // (Remove old ones to prevent dupes? Actually overwriting .ondrop property is safer than addEventListener for frequent updates)
+            const container = el.parentElement;
+            container.ondragover = window.allowDrop;
+            container.ondrop = (e) => window.handleItemDrop(e, slot);
+        }
+    }
+
+    // 2. Clear Inventory Grid
+    invList.innerHTML = '';
+
     if (items.length === 0) {
-        invList.innerHTML = '<div style="color:#666; font-style:italic; padding:5px;">Bag is empty.</div>';
-    } else {
-        invList.innerHTML = '';
-        items.forEach(item => {
+        invList.innerHTML = '<div style="color:#666; font-style:italic; grid-column: 1 / -1;">Bag is empty.</div>';
+    }
+
+    // 3. Process Items & Build Side Panel List
+    const sideListHtml = [];
+
+    items.forEach(item => {
+        let name = "Unknown", slot = "Bag", eq = false, id = null;
+        let icon = "📦";
+        let type = "misc";
+        let props = {};
+
+        if (typeof item === 'object' && !Array.isArray(item)) {
+            name = item.name; slot = item.slot; eq = item.is_equipped; id = item.id;
+            type = item.item_type || "misc";
+            props = item.properties || {};
+            if (props.icon) icon = props.icon;
+        } else if (Array.isArray(item)) {
+            name = item[0]; slot = item[1]; // Legacy fallback
+        } else { name = item; }
+
+        // Resolve Icon HTML (Image or Emoji)
+        const iconHtml = window.resolveIconHtml(icon);
+
+        // Build Tooltip text
+        let tooltip = `${name} (${type})`;
+        if (props.damage) tooltip += `\nDamage: ${props.damage}`;
+        if (props.defense) tooltip += `\nDefense: ${props.defense}`;
+        if (props.heal) tooltip += `\nHeals: ${props.heal}`;
+        if (props.effect) tooltip += `\nEffect: ${props.effect}`;
+        if (props.description) tooltip += `\n"${props.description}"`;
+
+        if (eq && slot) {
+            // Render into Slot (Paper Doll)
+            const slotEl = document.getElementById(`slot-${slot}`);
+            if (slotEl) {
+                slotEl.innerHTML = iconHtml;
+                slotEl.style.color = "#fff";
+                slotEl.setAttribute('data-item-id', id);
+                slotEl.title = `${tooltip}\n(Click to Unequip)`;
+                // Highlight border
+                slotEl.parentElement.style.borderColor = "#ffd700";
+            }
+        } else {
+            // Render into Backpack Grid
             const div = document.createElement('div');
-            div.className = 'interaction-item';
-            div.style.padding = "5px";
-            div.style.borderBottom = "1px solid #333";
+            div.className = 'inventory-grid-item';
+            div.style.border = "1px solid #444";
+            div.style.background = "#222";
+            div.style.aspectRatio = "1/1";
             div.style.display = "flex";
-            div.style.justifyContent = "space-between";
+            div.style.justifyContent = "center";
             div.style.alignItems = "center";
+            div.style.cursor = "grab"; // Grab cursor for draggable
+            div.style.fontSize = "1.2em";
+            div.style.position = "relative";
+            div.title = tooltip;
 
-            let name = "Unknown", slot = "Bag", eq = false, id = null;
-            if (typeof item === 'object' && !Array.isArray(item)) {
-                name = item.name; slot = item.slot; eq = item.is_equipped; id = item.id;
-            } else if (Array.isArray(item)) {
-                name = item[0]; slot = item[1];
-            } else { name = item; }
+            // DRAGGABLE ATTRIBUTES
+            div.draggable = true;
+            div.ondragstart = (e) => window.handleItemDragStart(e, id, slot, type);
+            // Click to Use fallback
+            div.onclick = () => window.useItem(id);
 
-            const equippedStr = eq ? ' <span style="color:#0f0; font-size:0.8em">[E]</span>' : '';
-            div.innerHTML = `
-                <div><div style="color: #eee; font-weight: bold;">${name}${equippedStr}</div><div style="font-size: 0.8em; color: #888;">${slot || 'Item'}</div></div>
-                <div>${!eq ? `<button style="font-size:10px; padding:2px 5px; cursor:pointer;" onclick="useItem('${id}')">Equip/Use</button>` : ''}</div>
-            `;
+            div.innerHTML = iconHtml;
+
+            if (item.quantity > 1) {
+                const qtySpan = document.createElement('span');
+                qtySpan.style.position = "absolute";
+                qtySpan.style.bottom = "1px";
+                qtySpan.style.right = "2px";
+                qtySpan.style.fontSize = "0.7em";
+                qtySpan.style.color = "#fff";
+                qtySpan.style.textShadow = "1px 1px 0 #000";
+                qtySpan.textContent = item.quantity;
+                div.appendChild(qtySpan);
+            }
             invList.appendChild(div);
-        });
 
-        // Sync with #items-list (Interaction Panel)
-        const panelList = document.getElementById('items-list');
-        if (panelList) {
-            panelList.innerHTML = invList.innerHTML;
+            // Side List
+            sideListHtml.push(`
+                <div style="padding:4px; border-bottom:1px solid #333; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="display:flex; align-items:center; gap:5px;">
+                        <div style="width:20px; height:20px; display:flex; align-items:center; justify-content:center;">${iconHtml}</div>
+                        ${name} ${item.quantity > 1 ? `x${item.quantity}` : ''}
+                    </span>
+                    <button onclick="useItem('${id}')" style="font-size:10px; cursor:pointer;">Use</button>
+                </div>
+            `);
+        }
+    });
+
+    // Fill remaining grid spots
+    const totalSlots = 15;
+    const currentCount = items.filter(i => !i.is_equipped).length;
+    for (let i = 0; i < (totalSlots - currentCount); i++) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.style.border = "1px dashed #333";
+        emptyDiv.style.background = "rgba(0,0,0,0.2)";
+        emptyDiv.style.aspectRatio = "1/1";
+        invList.appendChild(emptyDiv);
+    }
+
+    // Sync Side Panel
+    const sidePanel = document.getElementById('items-list');
+    if (sidePanel) {
+        if (sideListHtml.length === 0) {
+            sidePanel.innerHTML = '<div style="color:#666; font-style:italic;">Your bag is empty.</div>';
+        } else {
+            sidePanel.innerHTML = sideListHtml.join('');
         }
     }
 }
+
+window.unequipSlot = async function (slotName) {
+    const el = document.getElementById(`slot-${slotName}`);
+    if (!el) return;
+    const itemId = el.getAttribute('data-item-id');
+    if (!itemId) return; // Empty slot
+
+    try {
+        const res = await fetch('/api/inventory/unequip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ item_id: itemId })
+        });
+        const data = await res.json();
+        if (data.message) window.logMessage(data.message);
+        if (data.state) window.updateDashboard(data.state);
+    } catch (e) { console.error(e); }
+};
 
 function updateNearby(data) {
     const list = document.getElementById('nearby-list');
@@ -501,6 +1033,29 @@ function updateNearby(data) {
                 html += `<div class="interaction-item"><div style="color:gold; font-weight:bold">${s.name}</div><button onclick="interactSecret('${s.id}', '${s.type}')">Interact</button></div>`;
             }
         });
+    }
+
+    // --- RENDER OBJECTS (Crates, etc) ---
+    if (data.world && data.world.objects) {
+        // This is for the UI list, but the user asked about seeing it on the MAP.
+        // Wait, the REQUEST is about the user NOT SEEING IT (presumably on the map).
+        // The previous context was rendering (renderer_v3.js).
+        // This file is UI_v2.js.
+        // I need to check renderer_v3.js for object rendering.
+        // But I am currently editing ui_v2.js? 
+        // No, I am tasked to "Update renderer".
+        // Ah, I see I viewed renderer_v3.js in the previous step.
+        // But clearly I am expected to edit renderer_v3.js.
+        // Let me re-read the plan.
+        // The plan is "Update renderer to display objects". 
+        // So I should edit renderer_v3.js.
+        // But the current tool call target file is ui_v2.js?
+        // Wait, I haven't specified the target file yet really.
+        // Ah, I must have gotten confused. 
+        // The user request "there is an armort crate but i dont see it".
+        // The image shows the UI list has "Armory Crate".
+        // But the MAP (black background) does not show a crate.
+        // So I need to edit renderer_v3.js.
     }
     list.innerHTML = found ? html : '<div style="color:#666; font-style:italic">Nothing nearby.</div>';
 }
@@ -595,34 +1150,115 @@ function updateCombat(data) {
                 activeEnemies.forEach(e => {
                     const dist = Math.max(Math.abs(e.xyz[0] - data.player.xyz[0]), Math.abs(e.xyz[1] - data.player.xyz[1]));
                     const outOfReach = dist > 1.5;
-                    const style = outOfReach ? "opacity:0.5; color:#888; cursor:not-allowed;" : "color:#eee; cursor:pointer;";
-                    const name = outOfReach ? `${e.name} (Too Far)` : `<span style="color:#faa">⚔ ${e.name}</span>`;
-                    const clickAction = outOfReach ? "" : `selectTarget('${e.id}'); combatAction('attack')`; // One-click attack
+                    const hasAction = actionCount > 0;
 
-                    // Highlight selected
+                    let style = "";
+                    let name = e.name;
+                    let clickAction = "";
+
+                    // Condition 1: No Actions = Grey Out Everything
+                    if (!hasAction) {
+                        style = "opacity:0.3; color:#666; cursor:not-allowed; border-left: 3px solid #444;";
+                        name = `${e.name}`;
+                        clickAction = ""; // No click
+                    }
+                    // Condition 2: Has Action + In Range = Highlight!
+                    else if (!outOfReach) {
+                        style = "color:#fff; cursor:pointer; border: 1px solid rgba(255,255,255,0.4); background:rgba(255,50,50,0.1); border-left: 3px solid #f22;";
+                        name = `<span style="font-weight:bold; color:#faa;">⚔ ${e.name}</span>`;
+                        clickAction = `selectTarget('${e.id}')`; // Just Select
+                    }
+                    // Condition 3: Has Action + Out of Range = Grey/Warning
+                    else {
+                        style = "opacity:0.5; color:#888; cursor:not-allowed; border-left: 3px solid #555;";
+                        name = `${e.name} (Too Far)`;
+                        clickAction = "";
+                    }
+
+                    // Highlight currently selected (if logic persists)
                     const isSel = selectedCombatTarget === e.id;
+                    if (isSel) style += " background:#422;";
 
                     html += `
-                     <div onclick="${clickAction}" class="enemy-row" style="padding:6px 8px; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center; background:${isSel ? '#333' : ''}; ${style}">
-                        <span style="font-weight:${isSel ? 'bold' : 'normal'}">${name}</span>
+                     <div onclick="${clickAction}" class="enemy-row" style="padding:6px 8px; margin-bottom:2px; display:flex; justify-content:space-between; align-items:center; ${style}">
+                        <span>${name}</span>
                         <span style="font-size:0.9em; color:${e.hp < e.max_hp * 0.3 ? 'red' : 'orange'}">${e.hp}/${e.max_hp} HP</span>
                      </div>`;
                 });
             }
             html += `</div>`;
 
-            // Special Actions (Skills)
+            // ACTION GRID: Standard Attack + Skills moved here
+            html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:5px;">`;
+
+            // 1. Basic Attack
+            html += `<button class="btn-combat" onclick="combatAction('attack')" style="background:#522; font-weight:bold;">⚔ Attack [1]</button>`;
+
+            // 2. Skills
             if (pLevel >= 4) {
-                html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:5px;">`;
-                html += `<button class="btn-combat" onclick="combatAction('heavy_strike')">💥 H. Strike</button>`;
-                html += `<button class="btn-combat" onclick="combatAction('cleave')">🪓 Cleave</button>`;
-                html += `</div>`;
+                html += `<button class="btn-combat" onclick="combatAction('heavy_strike')">💥 H. Strike [2]</button>`;
+                html += `<button class="btn-combat" onclick="combatAction('cleave')">🪓 Cleave [3]</button>`;
+                // Placeholder for symmetry
+                html += `<div style="opacity:0"></div>`;
             } else {
+                html += `<button class="btn-combat" style="opacity:0.3; cursor:not-allowed;" title="Unlock Level 4">Locked [2]</button>`;
+            }
+
+            html += `</div>`;
+
+            // Note for User
+            if (pLevel < 4) {
                 html += `<div style="text-align:center; color:#555; font-size:0.8em; margin-top:5px;">Level up to unlock Skills</div>`;
             }
-            html += `</div>`;
+
+            html += `</div>`; // Close Main Flex Column
         }
         else if (currentCombatTab === 'bonus') {
+            html += `<div style="flex:1; display:flex; flex-direction:column;">`;
+
+            // --- ENEMY LIST FOR BONUS ACTIONS ---
+            html += `<div style="padding-bottom:5px; color:#aaa; font-size:0.8em;">Select Enemy (for Kick):</div>`;
+            html += `<div style="height:100px; overflow-y:auto; background:#111; border:1px solid #333; margin-bottom:5px;">`;
+
+            let enemies = data.world.enemies || [];
+            let activeEnemies = enemies.filter(e => e.state === 'combat');
+
+            if (activeEnemies.length === 0) {
+                html += `<div style="padding:5px; color:#666; font-style:italic;">No engaged enemies.</div>`;
+            } else {
+                activeEnemies.forEach(e => {
+                    const dist = Math.max(Math.abs(e.xyz[0] - data.player.xyz[0]), Math.abs(e.xyz[1] - data.player.xyz[1]));
+                    const outOfReach = dist > 1.5;
+                    const hasAction = bonusCount > 0;
+
+                    let style = "";
+                    let name = e.name;
+                    let clickAction = "";
+
+                    if (!hasAction) {
+                        style = "opacity:0.3; color:#666; cursor:not-allowed; border-left: 3px solid #444;";
+                        name = `${e.name}`;
+                        clickAction = "";
+                    }
+                    else if (!outOfReach) {
+                        style = "color:#fff; cursor:pointer; border: 1px solid rgba(255,255,255,0.4); background:rgba(255,50,50,0.1); border-left: 3px solid #f22;";
+                        name = `<span style="font-weight:bold; color:#faa;">⚔ ${e.name}</span>`;
+                        clickAction = `selectTarget('${e.id}')`;
+                    }
+                    else {
+                        style = "opacity:0.5; color:#888; cursor:not-allowed; border-left: 3px solid #555;";
+                        name = `${e.name} (Too Far)`;
+                        clickAction = "";
+                    }
+                    const isSel = selectedCombatTarget === e.id;
+                    if (isSel) style += " background:#422;";
+
+                    html += `<div onclick="${clickAction}" class="enemy-row" style="padding:6px 8px; margin-bottom:2px; display:flex; justify-content:space-between; align-items:center; ${style}">
+                        <span>${name}</span> <span style="font-size:0.9em; color:${e.hp < e.max_hp * 0.3 ? 'red' : 'orange'}">${e.hp}/${e.max_hp} HP</span></div>`;
+                });
+            }
+            html += `</div>`;
+
             html += `<div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:5px; align-content:start; flex:1;">`;
 
             const hasPotion = (data.player.inventory || []).some(i => {
@@ -631,26 +1267,27 @@ function updateCombat(data) {
             });
 
             if (hasPotion) {
-                html += `<button class="btn-combat" onclick="combatAction('use_potion')">🧪 Potion</button>`;
+                html += `<button class="btn-combat" onclick="combatAction('use_potion')">🧪 Potion [1]</button>`;
             } else {
                 html += `<button class="btn-combat" style="opacity:0.3; cursor:not-allowed;" title="No potions">🧪 Potion (0)</button>`;
             }
 
-            html += `<button class="btn-combat" onclick="combatAction('second_wind')">💚 2nd Wind</button>`;
+            html += `<button class="btn-combat" onclick="combatAction('second_wind')">💚 2nd Wind [2]</button>`;
 
             if (pLevel >= 4) {
-                html += `<button class="btn-combat" onclick="combatAction('kick')">🦵 Kick</button>`;
-                html += `<button class="btn-combat" onclick="combatAction('rage')">😡 Rage</button>`;
+                html += `<button class="btn-combat" onclick="combatAction('kick')">🦵 Kick [3]</button>`;
+                html += `<button class="btn-combat" onclick="combatAction('rage')">😡 Rage [4]</button>`;
             }
             html += `</div>`;
+            html += `</div>`; // Close Main Flex Column (Bonus Tab)
         }
         html += `</div>`; // End Content Container
 
         // 4. Footer (Persistent)
         html += `
         <div style="margin-top:10px; padding-top:10px; border-top:1px solid #333; display:grid; grid-template-columns: 1fr 2fr; gap:10px;">
-             <button class="btn-combat" onclick="combatAction('flee')" style="background:#522; font-size:11px;">🏃 Flee</button>
-             <button class="btn-combat" onclick="combatAction('end_turn')" style="background:#444; font-weight:bold;">END TURN</button>
+             <button class="btn-combat" onclick="combatAction('flee')" style="background:#522; font-size:11px;">🏃 Flee [F]</button>
+             <button class="btn-combat" onclick="combatAction('end_turn')" style="background:#444; font-weight:bold;">END TURN [SPACE]</button>
         </div>
         `;
 
@@ -679,8 +1316,20 @@ function addBtn(parent, text, onclick, bg) {
 }
 
 window.combatAction = async function (action) {
+    // 1. Immediate Visual Feedback
+    const buttons = document.querySelectorAll('.btn-combat');
+    buttons.forEach(b => {
+        b.disabled = true;
+        b.style.opacity = "0.5";
+        b.style.cursor = "wait";
+    });
+
+    // Optional: Show spinner or highlight clicked button?
+    // For now, the global disable is enough to show "processing".
+
     const payload = { action: action };
     if (selectedCombatTarget) payload.target_id = selectedCombatTarget;
+
     try {
         const res = await fetch('/api/combat/action', {
             method: 'POST',
@@ -688,6 +1337,7 @@ window.combatAction = async function (action) {
             body: JSON.stringify(payload)
         });
         const data = await res.json();
+
         if (data.result && data.result.events) {
             data.result.events.forEach(e => {
                 if (e.type === 'text' && window.logMessage) window.logMessage(e.message, 'combat');
@@ -695,7 +1345,16 @@ window.combatAction = async function (action) {
             });
         }
         if (window.fetchState) window.fetchState();
-    } catch (e) { console.error(e); }
+
+    } catch (e) {
+        console.error(e);
+        // Re-enable on error just in case (though fetchState usually refreshes UI)
+        buttons.forEach(b => {
+            b.disabled = false;
+            b.style.opacity = "1";
+            b.style.cursor = "pointer";
+        });
+    }
 };
 
 window.logMessage = function (msg, type = "info") {
@@ -738,3 +1397,54 @@ document.addEventListener('DOMContentLoaded', () => {
         logEl.appendChild(marker);
     }
 });
+// --- KEYBOARD SHORTCUTS ---
+document.addEventListener('keydown', (e) => {
+    // Only if combat panel is visible
+    const panel = document.getElementById('combat-controls');
+    if (!panel || panel.style.display === 'none') return;
+
+    // Ignore if typing in chat
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) return;
+
+    const key = e.key.toLowerCase();
+
+    // Tabs
+    if (key === 'q') switchCombatTab('move');
+    if (key === 'w') switchCombatTab('action');
+    if (key === 'e') switchCombatTab('bonus');
+
+    // Actions (Context Sensitive)
+    if (currentCombatTab === 'action') {
+        if (key === '1') combatAction('attack');
+        // Skills require Level 4 check handled by backend/UI availability, 
+        // but we can just trigger them blindly and let backend reject or UI logic handle it.
+        // Actually best to trigger click on the button if it exists to reuse logic?
+        if (key === '2') clickBtnByText('H. Strike');
+        if (key === '3') clickBtnByText('Cleave');
+    } else if (currentCombatTab === 'bonus') {
+        if (key === '1') clickBtnByText('Potion');
+        if (key === '2') clickBtnByText('2nd Wind');
+        if (key === '3') clickBtnByText('Kick');
+        if (key === '4') clickBtnByText('Rage');
+    }
+
+    // Global Combat Keys
+    if (e.code === 'Space') {
+        e.preventDefault(); // Stop scrolling
+        combatAction('end_turn');
+    }
+
+    if (key === 'f') combatAction('flee');
+});
+
+// Helper to click button programmatically (so we get visuals + logic)
+function clickBtnByText(txtSubset) {
+    const btns = document.querySelectorAll('#combat-controls button');
+    for (let b of btns) {
+        if (b.textContent.includes(txtSubset)) {
+            b.click();
+            return;
+        }
+    }
+}

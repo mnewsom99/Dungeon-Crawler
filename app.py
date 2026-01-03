@@ -155,8 +155,11 @@ def use_inventory_item():
 @app.route('/api/loot/take', methods=['POST'])
 def take_loot_item():
     data = request.json
-    msg = dm.take_loot(data.get("corpse_id"), data.get("loot_id"))
-    return jsonify({"message": msg})
+    res = dm.take_loot(data.get("corpse_id"), data.get("loot_id"))
+    
+    if isinstance(res, dict):
+        return jsonify(res)
+    return jsonify({"message": res})
 
 @app.route('/api/craft/list')
 def list_recipes():

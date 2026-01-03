@@ -111,6 +111,8 @@ class DungeonMaster:
                     npc.x = coords['x']
                     npc.y = coords['y']
                     npc.z = coords['z']
+                    if 'asset' in coords:
+                        npc.asset = coords['asset']
             
             self.session.commit()
             
@@ -439,15 +441,31 @@ class DungeonMaster:
         enemy_list = []
         for m in monsters:
             if m.state == "combat":
-                 enemy_list.append({"xyz": [m.x, m.y, m.z], "hp": m.hp_current, "max_hp": m.hp_max, "name": m.name, "id": m.id, "state": "combat"})
+                 enemy_list.append({"xyz": [m.x, m.y, m.z], "hp": m.hp_current, "max_hp": m.hp_max, "name": m.name, "id": m.id, "state": "combat", "level": m.level or 1})
             else:
-                 enemy_list.append({"xyz": [m.x, m.y, m.z], "hp": m.hp_current, "max_hp": m.hp_max, "name": m.name, "id": m.id, "state": "idle"})
+                 enemy_list.append({"xyz": [m.x, m.y, m.z], "hp": m.hp_current, "max_hp": m.hp_max, "name": m.name, "id": m.id, "state": "idle", "level": m.level or 1})
 
         # Corpses
         corpses = self.session.query(Monster).filter_by(is_alive=False, z=pz).all()
         corpse_list = []
+        corpses_to_delete = []
+        
         for m in corpses:
-             corpse_list.append({"xyz": [m.x, m.y, m.z], "name": f"Dead {m.name}", "id": m.id})
+             # Check if loot is effectively empty
+             has_loot = False
+             if m.loot and len(m.loot) > 0:
+                 has_loot = True
+             
+             if has_loot:
+                 corpse_list.append({"xyz": [m.x, m.y, m.z], "name": f"Dead {m.name}", "id": m.id})
+             else:
+                 corpses_to_delete.append(m)
+        
+        # Cleanup empty corpses so they don't linger on map
+        if corpses_to_delete:
+            for c in corpses_to_delete:
+                self.session.delete(c)
+            self.session.commit()
 
         from .quests import QuestManager, QUEST_DATABASE
         qm = QuestManager(self.session, player)
@@ -456,11 +474,7 @@ class DungeonMaster:
         npcs = self.session.query(NPC).filter(NPC.x != None, NPC.z == pz).all()
         npc_list = []
         for n in npcs:
-            img = "player.png"
-            if "Seraphina" in n.name: img = "seraphina.png"
-            elif "Elara" in n.name: img = "elara.png"
-            elif "Gareth" in n.name: img = "warrior2.png"
-            elif "Elder" in n.name: img = "elder.png"
+            img = n.asset or "player.png"
             
             # Quest Indicator Logic
             q_status = "none"
@@ -773,10 +787,92 @@ class DungeonMaster:
         if skill_id in current_skills:
             return "You already know this skill."
             
-        # Add Skill
-        current_skills[skill_id] = 1
+        # 3. Learn
+        current_skills[skill_id] = 1 # Tier 1
         pl.skills = current_skills
         flag_modified(pl, "skills")
         self.session.commit()
+        return f"You learned {skill_id.replace('_', ' ').title()}!"
+
+    def sell_item(self, item_id):
+        """Sell an item from inventory."""
+        from sqlalchemy.orm.attributes import flag_modified
+        from .database import InventoryItem
         
-        return f"Learned {skill_id.replace('_', ' ').title()}!"
+        pl = self.session.query(Player).first()
+        if not pl: return "Error: No player."
+        
+        # Find item
+        item = self.session.query(InventoryItem).filter_by(id=item_id, player_id=pl.id).first()
+        if not item: return "Item not found."
+        
+        if item.is_equipped:
+            return "Cannot sell equipped items."
+            
+        # Value logic (Temporary simplified)
+        val = 5
+        # If we had templates with value, we'd lookup. 
+        # For now, let's try to infer or use default.
+        if "Gold" in item.name: val = 1
+        if "Sword" in item.name: val = 15
+        if "Potion" in item.name: val = 10
+        if "Herb" in item.name: val = 8
+        if "Ore" in item.name: val = 12
+        
+        # Handle quantity? 
+        # Previously we didn't use quantity much, unique items.
+        # But if user has "20 herbs", they might be stacked if our system supports it.
+        # Currently InventoryItem model HAS 'quantity'.
+        
+        qty_sold = 1
+        if item.quantity > 1:
+             item.quantity -= 1
+             self.session.add(item) # Update quantity
+             msg = f"Sold 1 {item.name} for {val}g. ({item.quantity} left)"
+        else:
+             self.session.delete(item)
+             msg = f"Sold {item.name} for {val}g."
+             
+        pl.gold = (pl.gold or 0) + val
+        self.session.commit()
+        return msg
+
+    def buy_item(self, template_id):
+        """Buy an item from shop."""
+        from .items import ITEM_TEMPLATES
+        from .database import InventoryItem
+        
+        pl = self.session.query(Player).first()
+        
+        tmpl = ITEM_TEMPLATES.get(template_id)
+        if not tmpl: return "Item unavailable."
+        
+        price = tmpl.get("price", 10)
+        current_gold = pl.gold or 0
+        
+        if current_gold < price:
+             return "Not enough gold!"
+             
+        # Deduct Gold
+        pl.gold = current_gold - price
+        
+        # Create Item
+        # Check if stackable and exists?
+        # For now, just create new.
+        new_item = InventoryItem(
+            player_id=pl.id,
+            name=tmpl["name"],
+            item_type=tmpl["type"],
+            slot=tmpl.get("slot"),
+            properties=tmpl.get("properties", {}),
+            quantity=1,
+            is_equipped=False
+        )
+        self.session.add(new_item)
+        self.session.commit()
+        
+        return f"Bought {tmpl['name']} for {price}g."
+
+
+        
+

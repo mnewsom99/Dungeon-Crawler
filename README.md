@@ -45,7 +45,14 @@ The game now features the Town of Oakhaven (Zone 1).
     *   **UI V2**: Completely rewritten UI system (`ui_v2.js`) for better popup management and interactions.
     *   **Dungeon Entrance**: Added visual **Trapdoor** to enter the dungeon from Oakhaven.
 *   **Gameplay Polish**:
-    *   **Combat**: Added Auto-Close on victory, XP popups, and improved responsiveness.
+    *   **Advanced Combat System**:
+        *   **Action Economy**: Split turns into **Movement**, **Main Action** (Attack, Cleave), and **Bonus Action** (Potion, Kick, Rage).
+        *   **New Skills**:
+            *   **Heavy Strike**: High damage, lower accuracy.
+            *   **Cleave**: Guaranteed hit on multiple enemies for lower damage.
+            *   **Kick**: Bonus action to Stun enemies.
+            *   **Rage**: High risk/reward buff (+20% Dmg/Hit, -20% Defense).
+    *   **QoL Improvements**: Auto-Close on victory, XP popups, and improved loot interface.
     *   **Loot**: Enemies drop lootable bone piles with visual feedback.
     *   **Reset**: Fixed Reset Button functionality (Database locking issue resolved).
 *   **Code Cleanup**:

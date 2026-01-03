@@ -4,7 +4,7 @@ ITEM_TEMPLATES = {
         "name": "Iron Sword",
         "type": "weapon",
         "slot": "main_hand",
-        "properties": {"damage": "1d6", "icon": "⚔️"},
+        "properties": {"damage": "1d6", "icon": "iron_sword.png"},
         "value": 50,
         "description": "A standard soldier's blade."
     },
@@ -12,7 +12,7 @@ ITEM_TEMPLATES = {
         "name": "Steel Dagger",
         "type": "weapon",
         "slot": "main_hand",
-        "properties": {"damage": "1d4", "icon": "🗡️"},
+        "properties": {"damage": "1d4", "icon": "dagger.png"},
         "value": 25,
         "description": "Fast and light."
     },
@@ -20,7 +20,7 @@ ITEM_TEMPLATES = {
         "name": "Greatsword",
         "type": "weapon",
         "slot": "main_hand",
-        "properties": {"damage": "2d6", "icon": "🗡️"},
+        "properties": {"damage": "2d6", "icon": "greatsword.png"},
         "value": 150,
         "description": "Requires two hands, but hits hard."
     },
@@ -28,7 +28,7 @@ ITEM_TEMPLATES = {
         "name": "Titanium Greatsword",
         "type": "weapon",
         "slot": "main_hand",
-        "properties": {"damage": "2d8", "icon": "⚔️", "rarity": "legendary"},
+        "properties": {"damage": "2d8", "icon": "titanium_greatsword.png", "rarity": "legendary"},
         "value": 1000,
         "description": "A legendary blade forged from star metal. Incredible power."
     },
@@ -38,7 +38,7 @@ ITEM_TEMPLATES = {
         "name": "Leather Armor",
         "type": "armor",
         "slot": "chest",
-        "properties": {"defense": 2, "icon": "👕"},
+        "properties": {"defense": 2, "icon": "leather_armor.png"},
         "value": 40,
         "description": "Standard protective gear."
     },
@@ -46,7 +46,7 @@ ITEM_TEMPLATES = {
         "name": "Chainmail",
         "type": "armor",
         "slot": "chest",
-        "properties": {"defense": 5, "icon": "⛓️"},
+        "properties": {"defense": 5, "icon": "chainmail.png"},
         "value": 200,
         "description": "Heavy interlocking rings."
     },
@@ -56,7 +56,7 @@ ITEM_TEMPLATES = {
         "name": "Healing Potion",
         "type": "consumable",
         "slot": None,
-        "properties": {"heal": 2, "icon": "🧪"},
+        "properties": {"heal": 2, "icon": "healing_potion.png"},
         "value": 25,
         "description": "Restores health."
     },
@@ -66,7 +66,7 @@ ITEM_TEMPLATES = {
         "name": "Iron Ore",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "🪨"},
+        "properties": {"icon": "rock.png"},
         "value": 0,
         "description": "Raw iron mined from a rock."
     },
@@ -74,7 +74,7 @@ ITEM_TEMPLATES = {
         "name": "Mystic Herb",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "🌿"},
+        "properties": {"icon": "herb.png"},
         "value": 0,
         "description": "A fragrant herb needed by the Alchemist."
     },
@@ -83,7 +83,7 @@ ITEM_TEMPLATES = {
         "name": "Titanium Fragment",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "💎"},
+        "properties": {"icon": "titanium_fragment.png"},
         "value": 200,
         "description": "An incredibly hard metal shard."
     },
@@ -91,7 +91,7 @@ ITEM_TEMPLATES = {
         "name": "Everburning Cinder",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "🔥"},
+        "properties": {"icon": "everburning_cinder.png"},
         "value": 150,
         "description": "It feels warm to the touch."
     },
@@ -99,7 +99,7 @@ ITEM_TEMPLATES = {
         "name": "Freezing Spike",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "❄️"},
+        "properties": {"icon": "freezing_spike.png"},
         "value": 150,
         "description": "It never melts."
     },
@@ -108,7 +108,7 @@ ITEM_TEMPLATES = {
         "name": "Potion of Power",
         "type": "consumable",
         "slot": None,
-        "properties": {"heal": 50, "buff": "str+2", "icon": "🍷"},
+        "properties": {"heal": 50, "buff": "str+2", "icon": "potion_of_power.png"},
         "value": 500,
         "description": "A legendary brew that grants immense strength."
     },
@@ -118,7 +118,7 @@ ITEM_TEMPLATES = {
         "name": "Phoenix Down Shield",
         "type": "armor",
         "slot": "off_hand",
-        "properties": {"defense": 3, "effect": "fire_resist", "icon": "🛡️"},
+        "properties": {"defense": 3, "effect": "fire_resist", "icon": "phoenix_shield.png"},
         "value": 450,
         "description": "Grants immunity to fire when blocking."
     },
@@ -126,7 +126,7 @@ ITEM_TEMPLATES = {
         "name": "Cryo-Flask",
         "type": "consumable",
         "slot": None,
-        "properties": {"icon": "❄️", "effect": "freeze_lava"},
+        "properties": {"icon": "cryo_flask.png", "effect": "freeze_lava"},
         "value": 150,
         "description": "Freezes lava or steam to create safe passage."
     },
@@ -134,7 +134,7 @@ ITEM_TEMPLATES = {
         "name": "Igneous Core",
         "type": "material",
         "slot": None,
-        "properties": {"icon": "🔥"},
+        "properties": {"icon": "item_core.png"},
         "value": 300,
         "description": "The pulsating heart of a molten creature."
     },
@@ -142,9 +142,37 @@ ITEM_TEMPLATES = {
         "name": "Charred Ledger",
         "type": "quest",
         "slot": None,
-        "properties": {"icon": "📜"},
+        "properties": {"icon": "charred_ledger.png"},
         "value": 0,
         "description": "A burnt book detailing the experiments of the Magma Weaver."
+    },
+    
+    # New Standard Items
+    "torch": {
+        "name": "Torch",
+        "type": "misc",
+        "slot": "off_hand",
+        "properties": {"icon": "torch.png", "light": 6},
+        "value": 5,
+        "description": "Provides light in dark places."
+    },
+    
+    # Ice Dungeon Loot
+    "frost_brand": {
+        "name": "Frost Brand",
+        "type": "weapon",
+        "slot": "main_hand",
+        "properties": {"damage": "1d8+1d6", "icon": "frost_brand.png", "effect": "slow"},
+        "value": 600,
+        "description": "A magical sword that deals extra cold damage."
+    },
+    "item_frost_shard": {
+        "name": "Glacial Shard",
+        "type": "material",
+        "slot": None,
+        "properties": {"icon": "item_frost_shard.png"},
+        "value": 300,
+        "description": "A shard of eternal ice."
     }
 }
 

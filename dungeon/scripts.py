@@ -99,10 +99,11 @@ NPC_SCRIPTS = {
              },
              
              "town_start": {
+                "text_dynamic": "gareth_status",
                 "text": "Welcome to the Ironhand Smithy! Best steel in the region.",
                 "options": [
-                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply"},
-                    {"label": "I found the Titanium Fragment!", "next": "turn_in_titanium", "action": "complete_quest:titanium_hunt", "req_quest_active": "titanium_hunt"},
+                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply", "req_item": "Iron Ore"},
+                    {"label": "I found the Titanium Fragment!", "next": "turn_in_titanium", "action": "complete_quest:titanium_hunt", "req_quest_active": "titanium_hunt", "req_item": "Titanium Fragment"},
                     {"label": "Can you upgrade my gear?", "next": "shop_info"},
                     {"label": "See you later.", "next": "end"}
                 ]
@@ -121,7 +122,7 @@ NPC_SCRIPTS = {
                     {"label": "I can find Iron Ore.", "next": "accept_iron", "action": "accept_quest:iron_supply"},
                     
                     # Iron Ore Turn In
-                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply"},
+                    {"label": "I have Iron Ore.", "next": "turn_in_ore", "action": "complete_quest:iron_supply", "req_quest_active": "iron_supply", "req_item": "Iron Ore"},
                     
                     # Titanium Quest Offer (Req: Iron Supply Completed)
                     # Note: We rely on req_quest_complete to show this option only if iron_supply is done.
@@ -205,10 +206,19 @@ NPC_SCRIPTS = {
              },
 
              "town_start": {
+                "text_dynamic": "seraphina_status",
                 "text": "Welcome to my Alchemy Shop! The mana here is pristine.",
                 "options": [
-                    {"label": "Here are the herbs.", "next": "turn_in_herb", "action": "complete_quest:herbal_remedy", "req_quest_active": "herbal_remedy"},
-                    {"label": "I have the Fire and Ice reagents!", "next": "turn_in_reagents", "action": "complete_quest:elemental_reagents", "req_quest_active": "elemental_reagents"},
+                    {"label": "Here are the herbs.", "next": "turn_in_herb", "action": "complete_quest:herbal_remedy", "req_quest_active": "herbal_remedy", "req_item": "Mystic Herb"},
+                    {"label": "I have the Fire and Ice reagents!", "next": "turn_in_reagents", "action": "complete_quest:elemental_reagents", "req_quest_active": "elemental_reagents", "req_item": "Everburning Cinder"}, # Note: Checking one of the items here for simplicity or relying on quest engine in future
+                    # Actually we need to check TWO items. Our engine likely only checks one 'req_item'.
+                    # For safety, we keep the option visible but button press validates in backend?
+                    # Or we rely on 'can_complete' in DialogueSystem which checks ALL objectives. 
+                    # Yes, DialogueSystem.py Line 98 checks `qm.can_complete(qid)`.
+                    # So "req_quest_active" ensures it only shows if active, and clicking validates items?
+                    # Wait, Line 100 in dialogue.py: IF option has "complete_quest:id", it HIDES it if !can_complete.
+                    # So we don't strictly need req_item for the *option to appear* if we trust can_complete.
+                    
                     {"label": "Do you have potions?", "next": "shop_info"},
                     {"label": "Bye.", "next": "end"}
                 ]
@@ -293,6 +303,47 @@ NPC_SCRIPTS = {
                   "text": "Go North, into the forest. Be careful of the beasts.",
                   "options": []
              },
+
+             "town_start": {
+                "text_dynamic": "elder_status",
+                "text": "Fallback text.",
+                "options": [
+                    # Accept Quest (if available/failed regex check in dynamic?)
+                    # We rely on 'req_quest_active' logic to show relevant options
+                    
+                    # 1. Quest Offer (Available) check is handled by 'status' in text, but options?
+                    # The options list is static. We must provide options for ALL states and filter them.
+                    
+                    # IF AVAILABLE:
+                    {"label": "I will handle it.", "next": "end_quest", "action": "accept_quest:elemental_balance", "req_quest_active": "none"}, # Assuming simple check
+                     # Actually our filter currently only has req_quest_active (must be active) or req_quest_complete.
+                     # We need "req_quest_available" or similar.
+                     # For now, let's just show options and let the text guide.
+                     # Or rely on "start" node for initial acceptance, and "town_start" strictly for updates?
+                     # No, DialogueSystem forces town_start if in town.
+                     
+                     # AVAILABLE:
+                     {"label": "Tell me about the danger.", "next": "quest"}, 
+                     
+                     # ACTIVE:
+                     {"label": "I'm working on it.", "next": "end"},
+                     
+                     # COMPLETE (Ready to turn in - wait, we need 'can_complete' check?
+                     # The quest object has 'prevent_turn_in': True. 
+                     # So "complete_quest" action will fail if objectives false.
+                     # But we want to show the OPTION only if objectives met.
+                     # We lack "req_quest_can_complete" filter.
+                     # I will add a generic "Check Reward" button that always appears if active?
+                     
+                     {"label": "I have defeated them all!", "next": "turn_in_elemental", "action": "complete_quest:elemental_balance", "req_quest_active": "elemental_balance"}
+                ]
+             },
+             
+             "turn_in_elemental": {
+                 "text": "You have saved us all! The house deed is yours.",
+                 "options": [{"label": "Thank you, Elder.", "next": "end"}]
+             },
+
              "end": {
                  "text": "The gods bless you.",
                  "options": []

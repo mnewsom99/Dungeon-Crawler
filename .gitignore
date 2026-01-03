@@ -23,6 +23,7 @@ wheels/
 # Database
 *.db
 *.sqlite3
+state.json
 
 # Logs
 *.log

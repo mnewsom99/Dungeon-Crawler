@@ -103,18 +103,44 @@
                 </div>
                 <!-- Tab Content: Equipment -->
                 <div id="equipment-char-tab" class="tab-content">
-                    <h4 style="margin: 5px 0; color: #8f8;">Equipped</h4>
-                    <div id="equipped-slots" style="display: flex; gap: 10px; margin-bottom: 10px;">
-                        <!-- Updated dynamically -->
-                        <div class="equip-slot" data-slot="main_hand" title="Main Hand">✋ Using Fists</div>
-                        <div class="equip-slot" data-slot="chest" title="Chest">👕 Padded Items</div>
+                    <div style="background: rgba(0,0,0,0.5); padding: 5px; border-radius: 5px; margin-bottom: 5px; text-align: center;">
+                        <span style="color: #ffd700; font-weight: bold;">Gold: <span id="hero-gold-display">0</span></span>
+                    </div>
+
+                    <!-- Paper Doll Grid -->
+                    <div class="paper-doll" style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; padding: 10px 0; justify-items: center;">
+                        <!-- Row 1: Head (Center) -->
+                        <div class="equip-slot-container" style="grid-column: 2; width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Head">
+                            <div id="slot-head" class="equip-slot-content" onclick="unequipSlot('head')" style="cursor: pointer;">🧢</div>
+                        </div>
+
+                        <!-- Row 2: Main, Chest, Off -->
+                        <div class="equip-slot-container" style="width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Main Hand">
+                             <div id="slot-main_hand" class="equip-slot-content" onclick="unequipSlot('main_hand')" style="cursor: pointer;">⚔️</div>
+                        </div>
+                        <div class="equip-slot-container" style="width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Chest Armor">
+                             <div id="slot-chest" class="equip-slot-content" onclick="unequipSlot('chest')" style="cursor: pointer;">👕</div>
+                        </div>
+                        <div class="equip-slot-container" style="width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Off Hand / Shield">
+                             <div id="slot-off_hand" class="equip-slot-content" onclick="unequipSlot('off_hand')" style="cursor: pointer;">🛡️</div>
+                        </div>
+
+                        <!-- Row 3: Legs (Center) -->
+                        <div class="equip-slot-container" style="grid-column: 2; width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Legs">
+                             <div id="slot-legs" class="equip-slot-content" onclick="unequipSlot('legs')" style="cursor: pointer;">👖</div>
+                        </div>
+                         <!-- Row 4: Feet (Center) -->
+                        <div class="equip-slot-container" style="grid-column: 2; width: 40px; height: 40px; border: 1px solid #444; background: #222; display: flex; align-items: center; justify-content: center; position: relative;" title="Feet">
+                             <div id="slot-feet" class="equip-slot-content" onclick="unequipSlot('feet')" style="cursor: pointer;">👢</div>
+                        </div>
                     </div>
 
                     <h4 style="margin: 5px 0; color: #aaa; border-top: 1px solid #444; padding-top: 5px;">Backpack</h4>
-                    <ul id="inventory-list"
-                        style="padding-left: 0; list-style: none; max-height: 150px; overflow-y: auto;">
-                        <li style="color: #666; font-style: italic;">Loading...</li>
-                    </ul>
+                    <!-- Grid Inventory -->
+                    <div id="inventory-list"
+                        style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; max-height: 150px; overflow-y: auto; padding-right: 2px;">
+                        <div style="color: #666; font-style: italic; grid-column: 1 / -1;">Empty</div>
+                    </div>
                 </div>
                 <!-- Tab Content: Skills -->
                 <div id="skills-char-tab" class="tab-content">

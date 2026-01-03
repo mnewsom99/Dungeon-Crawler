@@ -578,10 +578,15 @@ window.takeLoot = async function (lootId) {
         }
 
         // If corpse is gone (empty), close modal. Otherwise refresh it.
+        // Backend should ideally return 'remaining_items' count or 'corpse_removed' flag.
+        // Assuming the current backend behavior relies on the message, but let's try to be smarter.
+        // If we get "Corpse removed" or "Nothing left", definitely close.
         if (data.message === "Corpse removed." || data.message === "Nothing left.") {
             document.getElementById('loot-modal').style.display = 'none';
             window.fetchState();
         } else {
+            // REFRESH the modal to show remaining items
+            // But we don't want to close it!
             lootBody(window.activeLootCorpseId);
         }
 

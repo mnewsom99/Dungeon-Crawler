@@ -223,7 +223,11 @@ class InventorySystem:
                  msg = "Corpse removed."
             
         self.session.commit()
-        return msg
+        return {
+            "message": msg,
+            "corpse_removed": (not new_loot_list),
+            "remaining": len(new_loot_list)
+        }
 
     def craft_item(self, player, recipe_id):
         recipe = RECIPES.get(recipe_id)

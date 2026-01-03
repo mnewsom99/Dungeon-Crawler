@@ -1,5 +1,5 @@
 from sqlalchemy.orm.attributes import flag_modified
-from .database import NPC, MapTile
+from .database import NPC, MapTile, Player
 # from .ai_bridge import AIBridge # Removed LLM
 from .scripts import NPC_SCRIPTS
 
@@ -13,7 +13,8 @@ class DialogueSystem:
 
     @property
     def player(self):
-        return self.dm.player
+        # Always query fresh to ensure attachment to current thread's session
+        return self.session.query(Player).first()
 
     def chat_with_npc(self, npc_index, message):
         """Handle persistent chat with an NPC using Script Trees."""
@@ -154,16 +155,23 @@ class DialogueSystem:
 
         # 6. Render Output
         # Text + Options List
-        reply += current_node["text"]
+        if "text_dynamic" in current_node:
+            dynamic_text = self.resolve_dynamic_text(current_node["text_dynamic"], target)
+            reply += dynamic_text
+        else:
+            reply += current_node["text"]
         
         if visible_options:
             reply += "\n\n"
             for i, opt in enumerate(visible_options):
                 reply += f"{i+1}. {opt['label']}\n"
         else:
-             # If we have no options, but we just completed a quest, maybe we should offer a 'Back' button?
-             # For now, just end.
-            reply += "\n(End of conversation)"
+             # If we have no options, using dynamic text might imply we need auto-generated options? 
+             # For now, assumes scripts provide options or we add a "Bye" default.
+            if "text_dynamic" in current_node:
+                 reply += "\n\n1. Goodbye." # Fallback for dynamic nodes
+            else:
+                 reply += "\n(End of conversation)"
 
         # Save State
         state["history"] = [reply] # Minimal history needed now
@@ -177,6 +185,109 @@ class DialogueSystem:
         can_trade = (target.z == 1) 
         
         return reply, target.name, can_trade
+
+    def resolve_dynamic_text(self, handler, npc):
+        """Generate text based on game state."""
+        from .quests import QuestManager, QUEST_DATABASE
+        qm = QuestManager(self.session, self.player)
+        
+        if handler == "elder_status":
+            # Check Elemental Balance Quest
+            q_id = "elemental_balance"
+            status = qm.get_status(q_id)
+            
+            if status == "available":
+                return "Hero! The Elemental Dungeons still block our trade routes. Attempts to enter the forest are met with fire and ice."
+            elif status == "completed":
+                return "The trade routes are open, and Oakhaven prospers thanks to you. Your home is being built as we speak!"
+            elif status == "active":
+                # Check specifics
+                prog = self.player.quest_state.get("active", {}).get(q_id, {}).get("progress", {})
+                
+                bosses = {
+                    "Magma Weaver": "Fire Dungeon",
+                    "Ice Guardian": "Ice Dungeon", 
+                    "Earth Guardian": "Earth Dungeon",
+                    "Air Guardian": "Air Dungeon"
+                }
+                
+                killed = []
+                remaining = []
+                
+                for boss, loc in bosses.items():
+                    if prog.get(boss, 0) >= 1:
+                        killed.append(loc)
+                    else:
+                        remaining.append(loc)
+                
+                if not killed:
+                    return "You have accepted the task, but the Beasts still rule. You must clear the Fire, Ice, Earth, and Air dungeons."
+                
+                if not remaining:
+                    return "Incredible... I can feel the balance returning! You have slain all the Guardians! Speak to me to claim your reward."
+                
+                msg = f"You are making progress. You have cleared: {', '.join(killed)}."
+                msg += f"\nRemains to be cleansed: {', '.join(remaining)}."
+                return msg
+
+        elif handler == "seraphina_status":
+            # 1. Check Herbal Remedy (Repeatable)
+            status_herb = qm.get_status("herbal_remedy")
+            
+            # Inventory Check
+            has_herb = False
+            for i in self.player.inventory:
+                 if i.name == "Mystic Herb": has_herb = True
+            
+            if status_herb == "active":
+                if has_herb:
+                    return "I smell the faint aroma of Mystic Herbs on you! Please, let me put them to use."
+                else:
+                    return "My potion stocks are running low. Please, if you find any Mystic Herbs in the dungeon, bring them to me."
+            
+            # 2. Check Elemental Reagents
+            status_elem = qm.get_status("elemental_reagents")
+            if status_elem == "active":
+                has_fire = any(i.name == "Everburning Cinder" for i in self.player.inventory)
+                has_ice = any(i.name == "Freezing Spike" for i in self.player.inventory)
+                
+                if has_fire and has_ice:
+                    return "Incredible! I can feel the opposing energies radiating from your pack. You have both reagents!"
+                elif has_fire:
+                    return "You have the Cinder, good. Now seek the Freezing Spike in the Ice Dungeon."
+                elif has_ice:
+                    return "The Spike is safe. Now find the Everburning Cinder in the Fire Dungeon."
+                else:
+                    return "I need a Cinder from the Fire Dungeon and a Spike from the Ice Dungeon to brew this master potion."
+
+            return "Welcome to my shop. The mana currents are stable today. How can I aid you?"
+
+        elif handler == "gareth_status":
+             # 1. Check Iron Supply
+             status_iron = qm.get_status("iron_supply")
+             has_iron = any(i.name == "Iron Ore" for i in self.player.inventory)
+             
+             if status_iron == "active":
+                 if has_iron:
+                     return "Hmph. That bag looks heavy. Did you bring the Iron Ore?"
+                 else:
+                     return "The forge is going cold, lad. I need that Iron Ore from the mines."
+             
+             # 2. Check Titanium
+             status_ti = qm.get_status("titanium_hunt")
+             if status_ti == "active":
+                 has_ti = any(i.name == "Titanium Fragment" for i in self.player.inventory)
+                 if has_ti:
+                     return "By the ancestors! Is that shimmneering metal what I think it is? You found the Titanium!"
+                 else:
+                     return "The Earth Dungeon is treacherous, but I need that Titanium Fragment to forge a masterpiece."
+             
+             if status_iron == "completed" and status_ti == "available":
+                 return "You proved yourself with the iron. But are you ready for a real challenge? I need a rare metal."
+
+             return "Welcome to the Ironhand Smithy. Finest steel in Oakhaven. Need a weapon sharpened?" 
+                
+        return f"[Dynamic Text Error: {handler}]"
 
 
     def handle_action(self, action_name, npc, state):

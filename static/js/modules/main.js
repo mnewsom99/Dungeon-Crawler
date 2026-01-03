@@ -98,3 +98,18 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'd' || e.key === 'ArrowRight') { console.log('Move East req'); move('east'); }
     }
 });
+
+// Reset Game Logic
+window.resetGame = async function () {
+    if (!confirm("Are you sure you want to reset the entire world? All progress will be lost.")) return;
+    try {
+        const res = await fetch('/api/debug/reset', { method: 'POST' });
+        const data = await res.json();
+        console.log("Reset Response:", data.message);
+        // Reload to ensure fresh start
+        location.reload();
+    } catch (e) {
+        console.error("Reset Failed", e);
+        alert("Reset failed. See console.");
+    }
+};

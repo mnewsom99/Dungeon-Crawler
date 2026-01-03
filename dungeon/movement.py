@@ -78,6 +78,32 @@ class MovementSystem:
         if tile.tile_type in ["door", "door_stone"]:
             # Hacky Secret Door check (Dungeon -> Town)
             print(f"DM: Door interaction at {new_x},{new_y},{new_z}")
+            
+            override_narrative = None
+
+            # --- TOWN BUILDINGS (Z=1) ---
+            if new_z == 1:
+                # Town Hall (0, 4) - Door on North Wall
+                if new_x == 0 and new_y == 4:
+                    if player.y < 4: override_narrative = "You enter the Town Hall."
+                    else: override_narrative = "You exit the Town Hall."
+
+                # Smithy (8, 9) - Door on West Wall
+                if new_x == 8 and new_y == 9:
+                    if player.x < 8: override_narrative = "You enter the Smithy."
+                    else: override_narrative = "You exit the Smithy."
+
+                # Alchemist (-8, 9) - Door on East Wall
+                if new_x == -8 and new_y == 9:
+                    if player.x > -8: override_narrative = "You enter the Alchemist's Shop."
+                    else: override_narrative = "You leave the Alchemist's Shop."
+            
+            # If we set a narrative, we should NOT return yet, but allow the fall-through to save state.
+            # However, we need to pass this string down. 
+            # We will attach it to the instance temporarily or handle it at the end? 
+            # Easier hacks: We can just manually commit here and then return? 
+            # NO, let's just let it fall through and handle the narrative at the end.
+            
             if new_z == 0 and abs(new_x) <= 2 and new_y >= 28: # Dungeon Exit Range
                 self.teleport_player(0, 0, 1) # Town
                 
@@ -294,7 +320,12 @@ class MovementSystem:
         new_room = self.dm._generate_description(new_x, new_y, new_z)
         
         desc = ""
-        if new_room and new_room != old_room:
+        
+        # Check for Local Override (from Door logic)
+        if 'override_narrative' in locals() and override_narrative:
+             desc = override_narrative
+        
+        elif new_room and new_room != old_room:
              desc = f"You enter {new_room}."
         elif new_room == "Dungeon Entrance" and not desc:
              pass

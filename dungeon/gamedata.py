@@ -97,10 +97,10 @@ ABILITIES = {
 }
 
 NPC_START_CONFIG = {
-    "Gareth": {"x": 10, "y": 8, "z": 1},
-    "Seraphina": {"x": -11, "y": 9, "z": 1},
-    "Elara": {"x": -11, "y": 8, "z": 1},
-    "Elder": {"x": 0, "y": 7, "z": 1}
+    "Gareth": {"x": 10, "y": 8, "z": 1, "asset": "warrior2.png"},
+    "Seraphina": {"x": -11, "y": 9, "z": 1, "asset": "Sorceress3.png"},
+    "Elara": {"x": -11, "y": 8, "z": 1, "asset": "elara_transparent.png"},
+    "Elder": {"x": 0, "y": 7, "z": 1, "asset": "elder.png"}
 }
 
 PLAYER_START_CONFIG = {

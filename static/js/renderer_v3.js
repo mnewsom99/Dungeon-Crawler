@@ -16,10 +16,13 @@ const floorImg = new Image(); floorImg.src = "/static/img/floor_wood.png"; // De
 
 
 // Environment Assets
+// Environment Assets
 const spriteCache = {};
 function loadSprite(key, filename) {
     const img = new Image();
     img.src = `/static/img/${filename}`;
+    img.onload = () => console.log(`[Assets] Loaded ${key}`);
+    img.onerror = () => console.error(`[Assets] FAILED to load ${key} from ${img.src}`);
     spriteCache[key] = img;
 }
 
@@ -28,7 +31,9 @@ loadSprite("wall", "wall_grey.png"); // Default 'wall' to 'wall_grey'
 loadSprite("wall_grey", "wall_grey.png");
 loadSprite("wall_house", "wall_house.png");
 loadSprite("door", "door.png");
+loadSprite("door_wood", "door_wood.png");
 loadSprite("stairs_down", "trapdoor_down.png"); // Dungeon Entrance
+loadSprite("door_stone", "door_stone.png");
 loadSprite("floor_wood", "floor_wood.png");
 loadSprite("grass", "grass.png");
 loadSprite("water", "water.png");
@@ -39,6 +44,7 @@ loadSprite("anvil", "anvil.png");
 loadSprite("shelf", "shelf.png");
 loadSprite("barrel", "barrel.png");
 loadSprite("crate", "crate.png");
+loadSprite("chest", "chest.png");
 loadSprite("street_lamp", "street_lamp.png");
 loadSprite("fountain", "fountain.png");
 loadSprite("flower_pot", "flower_pot.png");
@@ -56,6 +62,7 @@ loadSprite("obsidian_sentinel", "obsidian_sentinel.png");
 loadSprite("sulfur_bat", "sulfur_bat.png");
 loadSprite("bear", "bear.png");
 loadSprite("wolf", "wolf.png");
+loadSprite("herb", "herb.png");
 
 // Dynamic Imports (Mountains/Others)
 // Dynamic Imports (Mountains/Others)
@@ -91,6 +98,7 @@ function loadNpcImage(name, filename) {
 loadNpcImage("Elder Aethelgard", "elder.png");
 loadNpcImage("Seraphina", "Sorceress3.png"); // High-Res Witch
 loadNpcImage("Kael", "warrior2.png");
+loadNpcImage("Gareth", "warrior2.png");
 loadNpcImage("Elara", "elara_transparent.png"); // High-Res Elara
 
 // RESIZE HANDLER FOR HIGH DPI / FULLSCREEN
@@ -203,7 +211,18 @@ async function fetchAndDraw(ctx) {
             if (renderKey === 'sign') renderKey = 'signpost';
             if (renderKey === 'road' || renderKey === 'path') renderKey = 'street';
 
-            if (spriteCache[renderKey] && spriteCache[renderKey].complete) {
+            // DOOR LOGIC: Differentiate Town vs Dungeon
+            if (renderKey === 'door') {
+                if (playerZ === 1 && spriteCache['door_wood']) {
+                    renderKey = 'door_wood';
+                }
+            }
+
+            // Explicit check for door_stone if not caught by generic loader (SAFETY)
+            if (renderKey === 'door_stone' && spriteCache['door_stone']) {
+                ctx.drawImage(spriteCache['door_stone'], drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
+            else if (spriteCache[renderKey] && spriteCache[renderKey].complete) {
                 ctx.drawImage(spriteCache[renderKey], drawX, drawY, TILE_SIZE, TILE_SIZE);
             }
             // 3. Fallback / Special Logic for Procedural IDs (walls) or Missing Sprites
@@ -225,6 +244,13 @@ async function fetchAndDraw(ctx) {
                 // Animation could go here
                 if (spriteCache['water']) ctx.drawImage(spriteCache['water'], drawX, drawY, TILE_SIZE, TILE_SIZE);
                 else ctx.fillStyle = "blue"; ctx.fillRect(drawX, drawY, TILE_SIZE, TILE_SIZE);
+            }
+            else if (typeValue === 'herb') {
+                if (spriteCache['herb'] && spriteCache['herb'].complete) {
+                    ctx.drawImage(spriteCache['herb'], drawX, drawY, TILE_SIZE, TILE_SIZE);
+                } else {
+                    ctx.fillStyle = "magenta"; ctx.fillRect(drawX + 8, drawY + 8, 16, 16);
+                }
             }
             else if (typeValue.startsWith('mtn')) {
                 if (!spriteCache[tileType]) loadSprite(tileType, tileType + '.png');
@@ -288,13 +314,37 @@ async function fetchAndDraw(ctx) {
 
                 // Draw NPC Image if Available
                 let drawn = false;
-                for (let nameKey in npcImages) {
-                    if (npc.name.includes(nameKey)) {
-                        const img = npcImages[nameKey];
-                        if (img.complete) {
-                            ctx.drawImage(img, drawX, drawY, TILE_SIZE, TILE_SIZE);
+
+                // Backend provided asset (e.g. "warrior2.png")
+                let assetKey = npc.asset;
+
+                // Fallback for legacy
+                if (!assetKey) {
+                    // Try name match (Legacy)
+                    for (let nameKey in npcImages) {
+                        if (npc.name.includes(nameKey)) {
+                            // We found a partial match in our legacy list
+                            // But wait, npcImages values are Image objects, not keys.
+                            // Let's just draw it if found.
+                            ctx.drawImage(npcImages[nameKey], drawX, drawY, TILE_SIZE, TILE_SIZE);
                             drawn = true;
+                            break;
                         }
+                    }
+                } else {
+                    // Modern Path: Use asset filename
+                    // check if loaded in npcImages (we'll store by filename now too) or spriteCache
+
+                    // Lazy Load if missing
+                    if (!npcImages[assetKey]) {
+                        console.log(`[Renderer] Lazy Loading NPC Asset: ${assetKey}`);
+                        loadNpcImage(assetKey, assetKey);
+                    }
+
+                    const img = npcImages[assetKey];
+                    if (img && img.complete) {
+                        ctx.drawImage(img, drawX, drawY, TILE_SIZE, TILE_SIZE);
+                        drawn = true;
                     }
                 }
 
@@ -347,6 +397,44 @@ async function fetchAndDraw(ctx) {
                 const hpPct = (enemy.hp / enemy.max_hp) || 1;
                 ctx.fillStyle = "red"; ctx.fillRect(drawX, drawY - 6, TILE_SIZE, 4);
                 ctx.fillStyle = "lime"; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+                ctx.fillStyle = "lime"; ctx.fillRect(drawX, drawY - 6, TILE_SIZE * hpPct, 4);
+            });
+        }
+
+        // --- OBJECTS (Crates, Chests) ---
+        // --- OBJECTS (Crates, Chests, Secrets) ---
+        if (data.world && data.world.secrets) {
+            data.world.secrets.forEach(obj => {
+                if (!obj.xyz) return;
+
+                const [ox, oy, oz] = obj.xyz;
+                if (oz !== playerZ) return;
+
+                // Fog of War Check
+                const tileKey = `${ox},${oy},${oz}`;
+                if (!visibleMap[tileKey]) return;
+
+                const drawX = centerX + (ox - cameraPos[0]) * TILE_SIZE - (TILE_SIZE / 2);
+                const drawY = centerY + (oy - cameraPos[1]) * TILE_SIZE - (TILE_SIZE / 2);
+
+                let assetKey = "crate"; // Default
+                const name = (obj.name || "").toLowerCase();
+                const type = (obj.obj_type || "").toLowerCase(); // Check obj_type from DM
+
+                // Use chest sprite if applicable
+                if (type === "chest" || name.includes("chest")) assetKey = "chest";
+
+                const img = spriteCache[assetKey];
+                if (img && img.complete && img.naturalWidth > 0) {
+                    ctx.drawImage(img, drawX, drawY, TILE_SIZE, TILE_SIZE);
+                } else {
+                    // Fallback
+                    ctx.fillStyle = "#8B4513";
+                    ctx.fillRect(drawX + 8, drawY + 8, TILE_SIZE - 16, TILE_SIZE - 16);
+                    ctx.strokeStyle = "#D2691E";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(drawX + 8, drawY + 8, TILE_SIZE - 16, TILE_SIZE - 16);
+                }
             });
         }
 

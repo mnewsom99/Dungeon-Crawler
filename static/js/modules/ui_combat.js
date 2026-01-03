@@ -4,7 +4,14 @@
 // --- Traditional RPG Combat Menu System ---
 let combatMenuState = 'root'; // root, attack, skills, items
 
+// Flag to prevent UI updates stomping on the "Processing..." animation
+window.isCombatProcessing = false;
+
 function updateCombatUI(combatState) {
+    // If we are waiting for a server response (Attacking...), DO NOT refresh the UI from a poll!
+    // This prevents the "Processing" spinner from being overwritten by the old menu.
+    if (window.isCombatProcessing) return;
+
     const controls = document.getElementById('combat-controls');
     if (combatState.active) {
         controls.style.display = 'block';
@@ -123,150 +130,142 @@ function renderPlayerMenu(container, combatState) {
 
     // TAB CONTENT: MOVE
     if (combatTab === 'move') {
-        if (hasMove) {
-            html += `
-                <div style="text-align:center; padding-top:10px;">
-                    <button class="rpg-btn btn-move" style="pointer-events:none; border-color:#fff;">WASD / Arrows</button>
-                    <p style="color:#aaa; font-size:0.8em; margin-top:5px;">Move on map to spend moves.</p>
-                </div>
-             `;
-        } else {
-            html += `<div style="text-align:center; color:#555; padding-top:20px;">No movement remaining.</div>`;
-        }
+        const moveStyle = hasMove ? "pointer-events:none; border-color:#fff;" : "pointer-events:none; border-color:#555; opacity:0.5;";
+        html += `
+            <div style="text-align:center; padding-top:10px;">
+                <button class="rpg-btn btn-move" style="${moveStyle}">WASD / Arrows</button>
+                <p style="color:${hasMove ? '#aaa' : '#666'}; font-size:0.8em; margin-top:5px;">
+                    ${hasMove ? 'Move on map to spend moves.' : 'No movement remaining.'}
+                </p>
+            </div>
+         `;
     }
 
     // TAB CONTENT: ACTION
     else if (combatTab === 'action') {
-        if (hasAction) {
-            html += `<div style="display:grid; grid-template-columns:1fr; gap:5px;">`;
+        // ALWAYS Render the list, just grey it out if no actions
+        html += `<div style="display:grid; grid-template-columns:1fr; gap:5px;">`;
 
-            // Dynamic Enemy List for Attacks
-            const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
-            let visibleCount = 0;
-            enemies.forEach(e => {
-                if (e.hp <= 0) return;
-                const px = window.gameState.player.xyz[0];
-                const py = window.gameState.player.xyz[1];
-                const dx = e.xyz[0] - px;
-                const dy = e.xyz[1] - py;
-                const distEucl = Math.sqrt(dx * dx + dy * dy);
-                const distManh = Math.abs(dx) + Math.abs(dy);
-                const distChebyshev = Math.max(Math.abs(dx), Math.abs(dy));
+        // Dynamic Enemy List for Attacks
+        const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
+        let visibleCount = 0;
+        enemies.forEach(e => {
+            if (e.hp <= 0) return;
+            const px = window.gameState.player.xyz[0];
+            const py = window.gameState.player.xyz[1];
+            const dx = e.xyz[0] - px;
+            const dy = e.xyz[1] - py;
+            const distEucl = Math.sqrt(dx * dx + dy * dy);
+            const distManh = Math.abs(dx) + Math.abs(dy);
+            const distChebyshev = Math.max(Math.abs(dx), Math.abs(dy));
 
-                // VISIBILITY CHECK: Only show if within 6 tiles (~torch radius)
-                if (distEucl > 6) return;
+            // VISIBILITY CHECK: Only show if within 6 tiles (~torch radius)
+            if (distEucl > 6) return;
 
-                visibleCount++;
+            visibleCount++;
 
-                const inRange = distChebyshev <= 1.5; // Melee Range (1 tile + diagonals)
+            const inRange = distChebyshev <= 1.5; // Melee Range (1 tile + diagonals)
+            const canAct = hasAction && inRange; // Must have action AND be in range to click
 
-                // Determine Action
-                const act = combatSkillMode || 'attack';
-                const label = combatSkillMode ? combatSkillMode.replace('_', ' ').toUpperCase() : '⚔';
-                const style = combatSkillMode ? 'border-color:#f80; background:#420;' : '';
+            // Determine Action
+            const act = combatSkillMode || 'attack';
+            const label = combatSkillMode ? combatSkillMode.replace('_', ' ').toUpperCase() : '⚔';
+            const style = combatSkillMode ? 'border-color:#f80; background:#420;' : '';
 
-                // Show button
-                html += `
-                 <button onclick="combatAction('${act}', '${e.id}')" class="rpg-list-btn" ${inRange ? '' : 'disabled'} style="border-left:3px solid ${inRange ? '#f00' : '#555'}; opacity:${inRange ? 1 : 0.5}; ${style}">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span>${label} ${e.name}</span>
-                        <span>${e.hp}/${e.max_hp}</span>
-                    </div>
-                 </button>`;
-            });
-            if (visibleCount === 0) html += `<div style="color:#666;">No visible targets.</div>`;
+            // Show button
+            html += `
+             <button onclick="combatAction('${act}', '${e.id}')" class="rpg-list-btn" ${canAct ? '' : 'disabled'} style="border-left:3px solid ${inRange ? '#f00' : '#555'}; opacity:${canAct ? 1 : 0.5}; ${style}">
+                <div style="display:flex; justify-content:space-between;">
+                    <span><span style="color:#aaa; font-size:0.8em;">[Lvl ${e.level || '?'}]</span> ${label} ${e.name}</span>
+                    <span>${e.hp}/${e.max_hp}</span>
+                </div>
+             </button>`;
+        });
+        if (visibleCount === 0) html += `<div style="color:#666;">No visible targets.</div>`;
 
-            // SKILL: CLEAVE (Action) - Immediate, no targeting needed usually (hits all)
-            const skills = window.gameState && window.gameState.player && window.gameState.player.skills ? window.gameState.player.skills : {};
-            if (skills.cleave) {
-                html += `
-                 <button onclick="combatAction('cleave')" class="rpg-list-btn" style="border-left:3px solid #f55; margin-top:5px; background: #311;">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span>🛑 Cleave</span>
-                        <span style="font-size:0.8em; color:#aaa;">All Adjacent</span>
-                    </div>
-                 </button>`;
-            }
-            // SKILL: HEAVY STRIKE (Action)
-            if (skills.heavy_strike) {
-                const isActive = combatSkillMode === 'heavy_strike';
-                html += `
-                 <button onclick="toggleSkillMode('heavy_strike')" class="rpg-list-btn" style="border-left:3px solid ${isActive ? '#fff' : '#f55'}; margin-top:5px; background: ${isActive ? '#522' : '#311'};">
-                    <div style="display:flex; justify-content:space-between;">
-                        <span>${isActive ? '✅ TARGETING HEAVY STRIKE' : '⚔ Heavy Strike'}</span>
-                        <span style="font-size:0.8em; color:#aaa;">Select Target</span>
-                    </div>
-                 </button>`;
-            }
-
-            html += `</div>`;
-        } else {
-            html += `<div style="text-align:center; color:#555; padding-top:20px;">Action used.</div>`;
+        // SKILL: CLEAVE (Action)
+        const skills = window.gameState && window.gameState.player && window.gameState.player.skills ? window.gameState.player.skills : {};
+        if (skills.cleave) {
+            html += `
+             <button onclick="combatAction('cleave')" class="rpg-list-btn" ${hasAction ? '' : 'disabled'} style="border-left:3px solid #f55; margin-top:5px; background: #311; opacity:${hasAction ? 1 : 0.5};">
+                <div style="display:flex; justify-content:space-between;">
+                    <span>🛑 Cleave</span>
+                    <span style="font-size:0.8em; color:#aaa;">All Adjacent</span>
+                </div>
+             </button>`;
         }
+        // SKILL: HEAVY STRIKE (Action)
+        if (skills.heavy_strike) {
+            const isActive = combatSkillMode === 'heavy_strike';
+            html += `
+             <button onclick="toggleSkillMode('heavy_strike')" class="rpg-list-btn" ${hasAction ? '' : 'disabled'} style="border-left:3px solid ${isActive ? '#fff' : '#f55'}; margin-top:5px; background: ${isActive ? '#522' : '#311'}; opacity:${hasAction ? 1 : 0.5};">
+                <div style="display:flex; justify-content:space-between;">
+                    <span>${isActive ? '✅ TARGETING HEAVY STRIKE' : '⚔ Heavy Strike'}</span>
+                    <span style="font-size:0.8em; color:#aaa;">Select Target</span>
+                </div>
+             </button>`;
+        }
+
+        if (!hasAction) {
+            html += `<div style="text-align:center; color:#555; font-size:0.8em; padding-top:5px;">Action used.</div>`;
+        }
+        html += `</div>`;
     }
 
     // TAB CONTENT: BONUS
     else if (combatTab === 'bonus') {
         const skills = window.gameState && window.gameState.player && window.gameState.player.skills ? window.gameState.player.skills : {};
-        if (hasBonus) {
-            html += `
+        html += `
              <div style="display:flex; flex-direction:column; gap:5px;">
-                <button onclick="combatAction('second_wind')" class="rpg-list-btn" style="border-left:3px solid #0f0;">
+                <button onclick="combatAction('second_wind')" class="rpg-list-btn" ${hasBonus ? '' : 'disabled'} style="border-left:3px solid ${hasBonus ? '#0f0' : '#555'}; opacity:${hasBonus ? 1 : 0.5};">
                     <b>💚 Second Wind</b> <span style="font-size:0.8em; color:#aaa; float:right;">Heal HP</span>
                 </button>
-                <button onclick="combatAction('use_potion')" class="rpg-list-btn" style="border-left:3px solid #ff0;">
+                <button onclick="combatAction('use_potion')" class="rpg-list-btn" ${hasBonus ? '' : 'disabled'} style="border-left:3px solid ${hasBonus ? '#ff0' : '#555'}; opacity:${hasBonus ? 1 : 0.5};">
                     <b>🧪 Potion</b> <span style="font-size:0.8em; color:#aaa; float:right;">Heal 2d4+2</span>
                 </button>
              `;
 
-            // SKILL: KICK (Bonus)
-            if (skills.kick) {
-                const isActive = combatSkillMode === 'kick';
-                // NOTE: Clicking this needs to allow selecting target... but Kick is a BONUS action.
-                // If we toggle mode, we need to show ENEMIES list to select?
-                // Currently enemies list is in ACTION tab.
-                // Only if we show enemies in Bonus tab too? 
-                // Or we just add a "Kick [Enemy]" list here if active?
-                // Cleaner: Just show the enemy list inside this button or replacements?
-                // Let's replicate the enemy list specifically for Kick if active.
+        // SKILL: KICK (Bonus)
+        if (skills.kick) {
+            const isActive = combatSkillMode === 'kick';
+            html += `
+             <button onclick="toggleSkillMode('kick')" class="rpg-list-btn" ${hasBonus ? '' : 'disabled'} style="border-left:3px solid ${isActive ? '#fff' : (hasBonus ? '#fa0' : '#555')}; background: ${isActive ? '#430' : '#320'}; opacity:${hasBonus ? 1 : 0.5};">
+                <b>${isActive ? '✅ TARGETING KICK' : '👢 Kick'}</b> <span style="font-size:0.8em; color:#aaa; float:right;">Knockdown</span>
+             </button>`;
 
-                html += `
-                 <button onclick="toggleSkillMode('kick')" class="rpg-list-btn" style="border-left:3px solid ${isActive ? '#fff' : '#fa0'}; background: ${isActive ? '#430' : '#320'};">
-                    <b>${isActive ? '✅ TARGETING KICK' : '👢 Kick'}</b> <span style="font-size:0.8em; color:#aaa; float:right;">Knockdown</span>
-                 </button>`;
+            if (isActive && hasBonus) {
+                // Render Mini-Enemy List for Kick
+                const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
+                html += `<div style="margin-left:10px; border-left:1px dashed #666; padding-left:5px;">`;
+                enemies.forEach(e => {
+                    if (e.hp <= 0) return;
+                    // Calc Dist
+                    const px = window.gameState.player.xyz[0];
+                    const py = window.gameState.player.xyz[1];
+                    const distChebyshev = Math.max(Math.abs(e.xyz[0] - px), Math.abs(e.xyz[1] - py));
+                    if (distChebyshev > 1.5) return; // Kick Range
 
-                if (isActive) {
-                    // Render Mini-Enemy List for Kick
-                    const enemies = (window.gameState && window.gameState.world && window.gameState.world.enemies) ? window.gameState.world.enemies : [];
-                    html += `<div style="margin-left:10px; border-left:1px dashed #666; padding-left:5px;">`;
-                    enemies.forEach(e => {
-                        if (e.hp <= 0) return;
-                        // Calc Dist
-                        const px = window.gameState.player.xyz[0];
-                        const py = window.gameState.player.xyz[1];
-                        const distChebyshev = Math.max(Math.abs(e.xyz[0] - px), Math.abs(e.xyz[1] - py));
-                        if (distChebyshev > 1.5) return; // Kick Range
-
-                        html += `
-                         <button onclick="combatAction('kick', '${e.id}'); toggleSkillMode('kick');" class="rpg-list-btn" style="padding:4px; font-size:0.9em; background:#222; margin-top:2px;">
-                            👢 Kick ${e.name}
-                         </button>`;
-                    });
-                    html += `</div>`;
-                }
+                    html += `
+                     <button onclick="combatAction('kick', '${e.id}'); toggleSkillMode('kick');" class="rpg-list-btn" style="padding:4px; font-size:0.9em; background:#222; margin-top:2px;">
+                        👢 Kick ${e.name}
+                     </button>`;
+                });
+                html += `</div>`;
             }
+        }
 
-            // SKILL: RAGE (Bonus)
-            if (skills.rage) {
-                html += `
-                 <button onclick="combatAction('rage')" class="rpg-list-btn" style="border-left:3px solid #f00; background: #300;">
-                    <b>😡 Rage</b> <span style="font-size:0.8em; color:#aaa; float:right;">+2 DMG (2 Turns)</span>
-                 </button>`;
-            }
+        // SKILL: RAGE (Bonus)
+        if (skills.rage) {
+            html += `
+             <button onclick="combatAction('rage')" class="rpg-list-btn" ${hasBonus ? '' : 'disabled'} style="border-left:3px solid ${hasBonus ? '#f00' : '#555'}; background: #300; opacity:${hasBonus ? 1 : 0.5};">
+                <b>😡 Rage</b> <span style="font-size:0.8em; color:#aaa; float:right;">+2 DMG (2 Turns)</span>
+             </button>`;
+        }
 
-            html += `</div>`;
-        } else {
-            html += `<div style="text-align:center; color:#555; padding-top:20px;">Bonus action used.</div>`;
+        html += `</div>`;
+
+        if (!hasBonus) {
+            html += `<div style="text-align:center; color:#555; padding-top:5px; font-size:0.8em;">Bonus action used.</div>`;
         }
     }
 
@@ -334,6 +333,9 @@ window.setCombatMenu = setCombatMenu;
 
 
 const combatAction = async function (actionType, targetId = null) {
+    if (window.isCombatProcessing) return; // Prevent double clicks / spam
+    window.isCombatProcessing = true;
+
     const controls = document.getElementById('combat-controls');
     if (controls) {
         controls.style.opacity = '0.5';
@@ -373,6 +375,7 @@ const combatAction = async function (actionType, targetId = null) {
     } catch (e) {
         console.error("Combat Action Error:", e);
     } finally {
+        window.isCombatProcessing = false;
         if (controls) {
             controls.style.opacity = '1';
             controls.style.pointerEvents = 'auto';
